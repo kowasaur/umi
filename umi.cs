@@ -19,9 +19,9 @@ class Location {
         } else column++;
     }
 
-    public Location Copy() {
-        return new Location(line, column);
-    }
+    public Location Copy() => new Location(line, column);
+    
+    public static implicit operator string(Location l) => $"{l.line}:{l.column}";
 
 }
 
@@ -49,7 +49,104 @@ class Token {
 
 }
 
+class AstNode {
+
+    public readonly Location location;
+
+    public AstNode(Location loc) {
+        location = loc;
+    }
+
+    public class FuncCall : AstNode {
+        public string name;
+        public string argument;
+        public FuncCall(Location loc, string name, string arg) : base(loc) {
+            this.name = name;
+            argument = arg;
+        }
+    }
+
+    public class FuncDef : AstNode {
+        public string name;
+        public string return_type;
+        public FuncCall[] function_calls;
+        public FuncDef(Location loc, string name, string type, FuncCall[] func_calls) : base(loc) {
+            this.name = name;
+            return_type = type;
+            function_calls = func_calls;
+        }
+    }
+
+}
+
+class Pattern {
+
+    // i is the initial index in the list and n is the number of tokens
+    public delegate AstNode CreateNode(List<Token> tokens, int i, int n);
+
+    public readonly Token.Type token; // for when it's just a token
+    public readonly Pattern[] pattern;
+    public readonly CreateNode createNode;
+
+    public static readonly Pattern IDENTIFIER = new Pattern(Token.Type.IDENTIFIER); 
+    public static readonly Pattern STRING = new Pattern(Token.Type.STRING);
+    public static readonly Pattern LPARAN = new Pattern(Token.Type.LPARAN); 
+    public static readonly Pattern RPARAN = new Pattern(Token.Type.RPARAN); 
+    public static readonly Pattern LCURLY = new Pattern(Token.Type.LCURLY); 
+    public static readonly Pattern RCURLY = new Pattern(Token.Type.RCURLY); 
+    public static readonly Pattern STATEMENT_END = new Pattern(Token.Type.STATEMENT_END);
+
+    public static readonly Pattern FUNC_CALL = new Pattern(
+        new Pattern[] {IDENTIFIER, LPARAN, STRING, RPARAN, STATEMENT_END},
+        (tokens, i, _) => new AstNode.FuncCall(tokens[i+0].location, tokens[i+0].value, tokens[i+2].value)
+    );
+    public static readonly Pattern FUNC_DEF = new Pattern(
+        // For now if there's a pattern in a pattern it will be an infinite amount
+        new Pattern[] {IDENTIFIER, IDENTIFIER, LPARAN, RPARAN, LCURLY, FUNC_CALL, RCURLY},
+        (tokens, i, n) => {
+            int func_amount = (n - 6) / 5; // 6 tokens in funcdef, 5 tokens each in funccall
+            AstNode.FuncCall[] funcs = new AstNode.FuncCall[func_amount];
+            for (int fi = 0; fi < func_amount; fi++) {
+                funcs[fi] = (AstNode.FuncCall) FUNC_CALL.createNode(tokens, 5 * fi + 5, 5);
+            }
+            return new AstNode.FuncDef(tokens[i+0].location, tokens[i+1].value, tokens[i+0].value, funcs);
+        }
+    );
+    
+    public Pattern(Token.Type token) => this.token = token;
+    
+    public Pattern(Pattern[] pattern, CreateNode createNode) {
+        this.pattern = pattern;
+        this.createNode = createNode;
+    }
+
+    public bool DoesMatch(List<Token> tokens, int start_index, out int new_offset) {
+        new_offset = 0; // Default for when it doesn't match
+        int offset = start_index;
+
+        if (tokens.Count - offset < pattern.Length) return false;
+
+        for (int i = 0; i < pattern.Length; i++) {
+            Pattern sub_pattern = pattern[i];
+            if (sub_pattern.pattern == null) { // Toke
+                if (pattern[i].token != tokens[i + offset].type) return false;
+            } else { // Pattern
+                while (sub_pattern.DoesMatch(tokens, i + offset, out int o)) {
+                    offset += o;
+                }
+                offset--; // tbh idk why I have to do this
+            }
+        }
+
+        new_offset = offset + pattern.Length - start_index;
+        return true;
+    }
+
+}
+
 class Umi {
+
+    static readonly Pattern[] PATTERNS = {Pattern.FUNC_CALL, Pattern.FUNC_DEF};
 
     static List<Token> Lex(string file) {
         Location position = new Location(1, 1);
@@ -100,7 +197,7 @@ class Umi {
                 }
                 value = content;
             }
-            
+
             if (type != null) {
                 tokens.Add(new Token(type.Value, loc, value));
             }
@@ -110,15 +207,42 @@ class Umi {
         return tokens;
     }
 
+    static List<AstNode> ParseTokens(List<Token> tokens) {
+        int i = 0;
+        List<AstNode> nodes = new List<AstNode>();
+        while (i < tokens.Count) {
+            bool found_match = false;
+            foreach (Pattern pattern in PATTERNS) {
+                if (pattern.DoesMatch(tokens, i, out int offset)) {
+                    found_match = true;
+                    nodes.Add(pattern.createNode(tokens, i, offset));
+                    i += offset;
+                    break;
+                } 
+            }
+            if (!found_match) {
+                Console.WriteLine("Unknown pattern");
+                Environment.Exit(1);
+            }
+        }
+        return nodes;
+    }
+
     static void Main(string[] args) {
         if (args.Length < 1) {
             Console.WriteLine("You must specify the path to the file");
             return;
         }
 
-        var tokens = Lex(File.ReadAllText(args[0]));
-        foreach (var token in tokens) {
-            Console.WriteLine($"{token.type} {token.location.line}:{token.location.column} {token.value}");
+        List<Token> tokens = Lex(File.ReadAllText(args[0]));
+        List<AstNode> ast = ParseTokens(tokens);
+        AstNode.FuncDef main = (AstNode.FuncDef) ast[0];
+        Console.WriteLine($"Name: {main.name}");
+        Console.WriteLine($"Type: {main.return_type}");
+        Console.WriteLine("Statements: ");
+        foreach(var func_call in main.function_calls) {
+            Console.WriteLine($"    Name: {func_call.name}");
+            Console.WriteLine($"    Argument: {func_call.argument}");
         }
     }
 
