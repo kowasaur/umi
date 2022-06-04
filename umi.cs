@@ -228,6 +228,23 @@ class Umi {
         return nodes;
     }
 
+    static void GenIlForProgram(List<AstNode> ast) {
+        File.Delete("output.il");
+        File.AppendAllText("output.il", ".assembly UmiProgram {}\n");
+        // TODO: allow multiple functions and handle errors
+        AstNode.FuncDef main = (AstNode.FuncDef) ast[0];
+        File.AppendAllText("output.il", ".method static void main()\n");
+        File.AppendAllText("output.il", "{\n");
+        File.AppendAllText("output.il", "    .entrypoint\n");
+        foreach (var func_call in main.function_calls) {
+            File.AppendAllText("output.il", $"    ldstr \"{func_call.argument}\"\n");
+            // TODO: use the actual function called
+            File.AppendAllText("output.il", "    call void [mscorlib]System.Console::WriteLine(string)\n");
+        }
+        File.AppendAllText("output.il", "    ret\n");
+        File.AppendAllText("output.il", "}\n");
+    }
+
     static void Main(string[] args) {
         if (args.Length < 1) {
             Console.WriteLine("You must specify the path to the file");
@@ -236,14 +253,7 @@ class Umi {
 
         List<Token> tokens = Lex(File.ReadAllText(args[0]));
         List<AstNode> ast = ParseTokens(tokens);
-        AstNode.FuncDef main = (AstNode.FuncDef) ast[0];
-        Console.WriteLine($"Name: {main.name}");
-        Console.WriteLine($"Type: {main.return_type}");
-        Console.WriteLine("Statements: ");
-        foreach(var func_call in main.function_calls) {
-            Console.WriteLine($"    Name: {func_call.name}");
-            Console.WriteLine($"    Argument: {func_call.argument}");
-        }
+        GenIlForProgram(ast);
     }
 
 }
