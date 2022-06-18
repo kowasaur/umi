@@ -181,6 +181,11 @@ class Umi {
 
     static readonly Pattern[] PATTERNS = {Pattern.FUNC_CALL, Pattern.FUNC_DEF};
 
+    static void Crash(string message, Location loc) {
+        Console.WriteLine(loc + ": " + message);
+        Environment.Exit(1);
+    }
+
     static List<Token> Lex(string file) {
         Location position = new Location(1, 1);
         List<Token> tokens = new List<Token>();
@@ -219,6 +224,13 @@ class Umi {
                     position.Increase(file[i]);
                     value = content;
                     break;
+                case '/':
+                    if (file[i + 1] != '/') Crash("Division not implemented", loc);
+                    while (file[i + 1] != '\n') {
+                        i++;
+                        position.Increase(file[i]);
+                    }
+                    break;
             }
             if ('A' <= c && c <= 'z') {
                 type = Token.Type.IDENTIFIER;
@@ -253,10 +265,7 @@ class Umi {
                     break;
                 } 
             }
-            if (!found_match) {
-                Console.WriteLine("Unknown pattern");
-                Environment.Exit(1);
-            }
+            if (!found_match) Crash("Invalid syntax", tokens[i].location);
         }
         return nodes;
     }
