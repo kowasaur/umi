@@ -57,12 +57,20 @@ class AstNode {
         location = loc;
     }
 
+    public virtual void GenIl() => throw new NotImplementedException();
+
     public class FuncCall : AstNode {
         public string name;
         public string argument;
+
         public FuncCall(Location loc, string name, string arg) : base(loc) {
             this.name = name;
             argument = arg;
+        }
+
+        public override void GenIl() {
+            Output.WriteLine($"ldstr \"{argument}\"");
+            Output.WriteLine("call void " + name + "(string)");
         }
     }
 
@@ -70,10 +78,24 @@ class AstNode {
         public string name;
         public string return_type;
         public FuncCall[] function_calls;
+
         public FuncDef(Location loc, string name, string type, FuncCall[] func_calls) : base(loc) {
             this.name = name;
             return_type = type;
             function_calls = func_calls;
+        }
+
+        public override void GenIl() {
+            Output.WriteLine($".method static void {name}()");
+            Output.WriteLine("{");
+            Output.Indent();
+            if (name == "main") Output.WriteLine(".entrypoint");
+
+            foreach (var func_call in function_calls) func_call.GenIl();
+
+            Output.WriteLine("ret");
+            Output.Unindent();
+            Output.WriteLine("}\n");
         }
     }
 
@@ -107,7 +129,7 @@ class Pattern {
             int func_amount = (n - 6) / 5; // 6 tokens in funcdef, 5 tokens each in funccall
             AstNode.FuncCall[] funcs = new AstNode.FuncCall[func_amount];
             for (int fi = 0; fi < func_amount; fi++) {
-                funcs[fi] = (AstNode.FuncCall) FUNC_CALL.createNode(tokens, 5 * fi + 5, 5);
+                funcs[fi] = (AstNode.FuncCall) FUNC_CALL.createNode(tokens, 5 * fi + 5 + i, 5);
             }
             return new AstNode.FuncDef(tokens[i+0].location, tokens[i+1].value, tokens[i+0].value, funcs);
         }
@@ -142,6 +164,17 @@ class Pattern {
         return true;
     }
 
+}
+
+class Output {
+    static int indentation = 0;
+
+    public static void WriteLine(string il_code) {
+        // TODO allow the output file to be changed
+        File.AppendAllText("output.il", new string(' ', indentation) + il_code + "\n");
+    }
+    public static void Indent() => indentation += 4;
+    public static void Unindent() => indentation -= 4;
 }
 
 class Umi {
@@ -230,19 +263,19 @@ class Umi {
 
     static void GenIlForProgram(List<AstNode> ast) {
         File.Delete("output.il");
-        File.AppendAllText("output.il", ".assembly UmiProgram {}\n");
-        // TODO: allow multiple functions and handle errors
-        AstNode.FuncDef main = (AstNode.FuncDef) ast[0];
-        File.AppendAllText("output.il", ".method static void main()\n");
-        File.AppendAllText("output.il", "{\n");
-        File.AppendAllText("output.il", "    .entrypoint\n");
-        foreach (var func_call in main.function_calls) {
-            File.AppendAllText("output.il", $"    ldstr \"{func_call.argument}\"\n");
-            // TODO: use the actual function called
-            File.AppendAllText("output.il", "    call void [mscorlib]System.Console::WriteLine(string)\n");
-        }
-        File.AppendAllText("output.il", "    ret\n");
-        File.AppendAllText("output.il", "}\n");
+        Output.WriteLine(".assembly UmiProgram {}\n");
+        
+        // TODO: use something like an alias instead
+        Output.WriteLine(".method static void print(string)");
+        Output.WriteLine("{");
+        Output.Indent();
+        Output.WriteLine("ldarg 0");
+        Output.WriteLine("call void [mscorlib]System.Console::WriteLine(string)");
+        Output.WriteLine("ret");
+        Output.Unindent();
+        Output.WriteLine("}\n");
+
+        foreach (var node in ast) node.GenIl();
     }
 
     static void Main(string[] args) {
