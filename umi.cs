@@ -44,10 +44,13 @@ class Token {
         RPARAN,
         LCURLY,
         RCURLY,
-        STATEMENT_END
+        STATEMENT_END,
+        COMMA
     }
 
 }
+
+// TODO: make IL generation work properly
 
 class AstNode {
 
@@ -59,30 +62,53 @@ class AstNode {
 
     public virtual void GenIl() => throw new NotImplementedException();
 
-    public class FuncCall : AstNode {
-        public string name;
-        public string argument;
+    public class Value : AstNode {
+        public readonly Token value;
+        public Value(Token value) : base(value.location) => this.value = value;
+    }
 
-        public FuncCall(Location loc, string name, string arg) : base(loc) {
+    public class Arguments : AstNode {
+        public readonly string[] args;
+        public Arguments(Location loc, string[] args) : base(loc) => this.args = args;
+    }
+
+    public class Parameters : AstNode {
+        public readonly string[] types;
+        public readonly string[] names;
+        public Parameters(Location loc, string[] types, string[] names) : base(loc) {
+            this.types = types;
+            this.names = names;
+        }
+    }
+
+    public class FuncCall : AstNode {
+        public readonly string name;
+        public readonly string[] arguments;
+
+        public FuncCall(Location loc, string name, string[] args) : base(loc) {
             this.name = name;
-            argument = arg;
+            arguments = args;
         }
 
         public override void GenIl() {
-            Output.WriteLine($"ldstr \"{argument}\"");
+            foreach (var arg in arguments) {
+                Output.WriteLine($"ldstr \"{arg}\"");
+            }
             Output.WriteLine("call void " + name + "(string)");
         }
     }
 
     public class FuncDef : AstNode {
-        public string name;
-        public string return_type;
-        public FuncCall[] function_calls;
+        public readonly string name;
+        public readonly string return_type;
+        public readonly FuncCall[] function_calls;
+        public readonly Parameters parameters;
 
-        public FuncDef(Location loc, string name, string type, FuncCall[] func_calls) : base(loc) {
-            this.name = name;
-            return_type = type;
-            function_calls = func_calls;
+        public FuncDef(Location loc, string n, string t, FuncCall[] f, Parameters p) : base(loc) {
+            name = n;
+            return_type = t;
+            function_calls = f;
+            parameters = p;
         }
 
         public override void GenIl() {
@@ -103,67 +129,157 @@ class AstNode {
 
 class Pattern {
 
-    // i is the initial index in the list and n is the number of tokens
-    public delegate AstNode CreateNode(List<Token> tokens, int i, int n);
+    public delegate AstNode GenAstType(List<Token> tokens, ref int i, Pattern self);
+    public delegate Pattern Constructor();
 
-    public readonly Token.Type token; // for when it's just a token
-    public readonly Pattern[] pattern;
-    public readonly CreateNode createNode;
+    public Pattern[] tails;
+    public GenAstType GenAst = (List<Token> tokens, ref int i, Pattern self) => {
+        if (tokens[i].type == self.token_type) return new AstNode.Value(tokens[i++]);
+        return null;
+    };
 
-    public static readonly Pattern IDENTIFIER = new Pattern(Token.Type.IDENTIFIER); 
-    public static readonly Pattern STRING = new Pattern(Token.Type.STRING);
-    public static readonly Pattern LPARAN = new Pattern(Token.Type.LPARAN); 
-    public static readonly Pattern RPARAN = new Pattern(Token.Type.RPARAN); 
-    public static readonly Pattern LCURLY = new Pattern(Token.Type.LCURLY); 
-    public static readonly Pattern RCURLY = new Pattern(Token.Type.RCURLY); 
-    public static readonly Pattern STATEMENT_END = new Pattern(Token.Type.STATEMENT_END);
+    readonly Token.Type token_type;
 
-    public static readonly Pattern FUNC_CALL = new Pattern(
-        new Pattern[] {IDENTIFIER, LPARAN, STRING, RPARAN, STATEMENT_END},
-        (tokens, i, _) => new AstNode.FuncCall(tokens[i+0].location, tokens[i+0].value, tokens[i+2].value)
-    );
-    public static readonly Pattern FUNC_DEF = new Pattern(
-        // For now if there's a pattern in a pattern it will be an infinite amount
-        new Pattern[] {IDENTIFIER, IDENTIFIER, LPARAN, RPARAN, LCURLY, FUNC_CALL, RCURLY},
-        (tokens, i, n) => {
-            int func_amount = (n - 6) / 5; // 6 tokens in funcdef, 5 tokens each in funccall
-            AstNode.FuncCall[] funcs = new AstNode.FuncCall[func_amount];
-            for (int fi = 0; fi < func_amount; fi++) {
-                funcs[fi] = (AstNode.FuncCall) FUNC_CALL.createNode(tokens, 5 * fi + 5 + i, 5);
-            }
-            return new AstNode.FuncDef(tokens[i+0].location, tokens[i+1].value, tokens[i+0].value, funcs);
-        }
-    );
-    
-    public Pattern(Token.Type token) => this.token = token;
-    
-    public Pattern(Pattern[] pattern, CreateNode createNode) {
-        this.pattern = pattern;
-        this.createNode = createNode;
+    readonly Pattern subpattern_head;
+    readonly string name;
+
+    public Pattern(Token.Type token_type, Pattern[] tails = null) {
+        this.token_type = token_type;
+        this.tails = tails;
     }
 
-    public bool DoesMatch(List<Token> tokens, int start_index, out int new_offset) {
-        new_offset = 0; // Default for when it doesn't match
-        int offset = start_index;
+    public Pattern(Constructor constructor, GenAstType GenAst, string name, Pattern[] tails = null) {
+        subpattern_head = constructor();
+        this.GenAst = GenAst;
+        this.name = name;
+        this.tails = tails;
+    }
 
-        if (tokens.Count - offset < pattern.Length) return false;
+    public static implicit operator string(Pattern p) => p.name == null ? p.token_type.ToString() : p.name;
 
-        for (int i = 0; i < pattern.Length; i++) {
-            Pattern sub_pattern = pattern[i];
-            if (sub_pattern.pattern == null) { // Toke
-                if (pattern[i].token != tokens[i + offset].type) return false;
-            } else { // Pattern
-                while (sub_pattern.DoesMatch(tokens, i + offset, out int o)) {
-                    offset += o;
+    public List<AstNode> ParseTokens(List<Token> tokens, ref int i) {
+        List<AstNode> nodes = new List<AstNode>();
+        if (subpattern_head == null) Umi.Crash("ParseTokens being called on primitive", tokens[i].location);
+        var pattern_node = subpattern_head;
+        var head_ast_node = pattern_node.GenAst(tokens, ref i, pattern_node);
+        if (head_ast_node != null) {
+            nodes.Add(head_ast_node);
+            // Console.WriteLine($"Added {pattern_node.token_type}");
+        } else {
+            Umi.Crash("Pretty sure this should never be reached", tokens[i].location);
+        }
+
+        while (pattern_node.tails != null && i < tokens.Count) {
+            var token = tokens[i];
+            bool matched = false;
+            foreach (var child_node in pattern_node.tails) {
+                var ast_node = child_node.GenAst(tokens, ref i, child_node);
+                if (ast_node != null) {
+                    nodes.Add(ast_node);
+                    pattern_node = child_node;
+                    // Console.WriteLine($"In {(string)this} added {(string)child_node}");
+                    matched = true;
+                    break;
                 }
-                offset--; // tbh idk why I have to do this
+            }
+            if (!matched) {
+                string expected = "";
+                foreach (var child_node in pattern_node.tails) {
+                    expected += child_node + ", ";
+                }
+                Umi.Crash($"Unexpected token; In {name} expected {expected}but found {token.type}", token.location);
             }
         }
-
-        new_offset = offset + pattern.Length - start_index;
-        return true;
+        
+        return nodes;
     }
 
+    // This is a tree structure
+    static readonly Pattern FUNC_DEF = new Pattern(() => {
+        var end_block = new Pattern(Token.Type.RCURLY);
+        var statement = new Pattern((Constructor) (() => {
+            var semicolon = new Pattern(Token.Type.STATEMENT_END);
+
+            var arguments = new Pattern(() => {
+                var r_paran = new Pattern(Token.Type.RPARAN);
+                var additional_argument = new Pattern(Token.Type.STRING, new Pattern[] {r_paran, null});
+                var comma = new Pattern(Token.Type.COMMA, new Pattern[] {additional_argument});
+                additional_argument.tails[1] = comma;
+                var first_argument = new Pattern(Token.Type.STRING, new Pattern[] {r_paran, comma});
+                var l_paran = new Pattern(Token.Type.LPARAN, new Pattern[] {r_paran, first_argument});
+                return l_paran;
+            }, (List<Token> tokens, ref int i, Pattern self) => {
+                int start = i;
+                List<AstNode> nodes = self.ParseTokens(tokens, ref i);
+                string[] args = new string[(nodes.Count - 1)/2];
+                // Ignore the brackets and commas
+                for (int j = 1; j < nodes.Count - 1; j += 2) {
+                    args[(j-1)/2] = ((AstNode.Value)nodes[j]).value.value;
+                }
+                return new AstNode.Arguments(tokens[start].location, args);
+            }, "arguments", new Pattern[] {semicolon});
+
+            var name = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {arguments});
+            return name;
+        }), (List<Token> tokens, ref int i, Pattern self) => {
+            int start = i;
+            List<AstNode> nodes = self.ParseTokens(tokens, ref i);
+            string name = ((AstNode.Value)nodes[0]).value.value;
+            string[] args = ((AstNode.Arguments)nodes[1]).args;
+            return new AstNode.FuncCall(tokens[start].location, name, args);
+        }, "statements");
+        statement.tails = new Pattern[] {end_block, statement};
+        var start_block = new Pattern(Token.Type.LCURLY, new Pattern[] {statement});
+        var parameters = new Pattern(() => {
+            var r_paran = new Pattern(Token.Type.RPARAN);
+
+            var addit_param_var = new Pattern(Token.Type.IDENTIFIER);
+            var addit_param_type = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {addit_param_var});
+            var comma = new Pattern(Token.Type.COMMA, new Pattern[] {addit_param_type});
+            addit_param_var.tails = new Pattern[] {r_paran, comma};
+
+            var first_param_var = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {r_paran, comma});
+            var first_param_type = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {first_param_var});
+            var l_paran = new Pattern(Token.Type.LPARAN, new Pattern[] {r_paran, first_param_type});
+            return l_paran;
+        }, (List<Token> tokens, ref int i, Pattern self) => {
+            int start = i;
+            List<AstNode> nodes = self.ParseTokens(tokens, ref i);
+            // TODO: check this maths and other arrays
+            string[] types = new string[(nodes.Count - 1)/3];
+            string[] names = new string[(nodes.Count - 1)/3];
+            // Ignore the brackets and commas
+            for (int j = 1; j < nodes.Count - 1; j += 3) {
+                types[(j-1)/3] = ((AstNode.Value)nodes[j]).value.value;
+                names[(j-1)/3] = ((AstNode.Value)nodes[j]).value.value;
+            }
+            // TODO use the actual things
+            return new AstNode.Parameters(tokens[start].location, types, names);
+        }, "parameters", new Pattern[] {start_block});
+        var func_def_name = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {parameters});
+        var type = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {func_def_name});
+        return type;
+    }, (List<Token> tokens, ref int i, Pattern self) => {
+        int start = i;
+        List<AstNode> nodes = self.ParseTokens(tokens, ref i);
+
+        string type = ((AstNode.Value)nodes[0]).value.value;
+        string name = ((AstNode.Value)nodes[1]).value.value;
+        AstNode.Parameters parameters = (AstNode.Parameters)nodes[2];
+
+        int func_call_amount = nodes.Count - 5;
+        AstNode.FuncCall[] funcs = new AstNode.FuncCall[func_call_amount];
+        for (int j = 4; j < nodes.Count - 1; j++) funcs[j-4] = (AstNode.FuncCall)nodes[j];
+ 
+        return new AstNode.FuncDef(tokens[start].location, name, type, funcs, parameters);
+    }, "function definition");
+
+    // Workaround to allow multiple functions
+    public static readonly Pattern PROGRAM = new Pattern(() => {
+        FUNC_DEF.tails = new Pattern[] {FUNC_DEF};
+        return FUNC_DEF;
+    }, null, "program");
+    
 }
 
 class Output {
@@ -179,9 +295,7 @@ class Output {
 
 class Umi {
 
-    static readonly Pattern[] PATTERNS = {Pattern.FUNC_CALL, Pattern.FUNC_DEF};
-
-    static void Crash(string message, Location loc) {
+    public static void Crash(string message, Location loc) {
         Console.WriteLine(loc + ": " + message);
         Environment.Exit(1);
     }
@@ -211,6 +325,9 @@ class Umi {
                     break;
                 case ';':
                     type = Token.Type.STATEMENT_END;
+                    break;
+                case ',':
+                    type = Token.Type.COMMA;
                     break;
                 case '"':
                     type = Token.Type.STRING;
@@ -252,24 +369,6 @@ class Umi {
         return tokens;
     }
 
-    static List<AstNode> ParseTokens(List<Token> tokens) {
-        int i = 0;
-        List<AstNode> nodes = new List<AstNode>();
-        while (i < tokens.Count) {
-            bool found_match = false;
-            foreach (Pattern pattern in PATTERNS) {
-                if (pattern.DoesMatch(tokens, i, out int offset)) {
-                    found_match = true;
-                    nodes.Add(pattern.createNode(tokens, i, offset));
-                    i += offset;
-                    break;
-                } 
-            }
-            if (!found_match) Crash("Invalid syntax", tokens[i].location);
-        }
-        return nodes;
-    }
-
     static void GenIlForProgram(List<AstNode> ast) {
         File.Delete("output.il");
         Output.WriteLine(".assembly UmiProgram {}\n");
@@ -294,7 +393,8 @@ class Umi {
         }
 
         List<Token> tokens = Lex(File.ReadAllText(args[0]));
-        List<AstNode> ast = ParseTokens(tokens);
+        int i = 0;
+        List<AstNode> ast = Pattern.PROGRAM.ParseTokens(tokens, ref i);
         GenIlForProgram(ast);
     }
 
