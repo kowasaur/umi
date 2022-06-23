@@ -91,10 +91,12 @@ class AstNode {
         }
 
         public override void GenIl() {
+            // TODO do checking
             foreach (var arg in arguments) {
                 Output.WriteLine($"ldstr \"{arg}\"");
             }
-            Output.WriteLine("call void " + name + "(string)");
+            string args = String.Join(", ", Umi.function_args[name]);
+            Output.WriteLine($"call void {name} ({args})");
         }
     }
 
@@ -253,14 +255,13 @@ class Pattern {
                 types[(j-1)/3] = ((AstNode.Value)nodes[j]).value.value;
                 names[(j-1)/3] = ((AstNode.Value)nodes[j]).value.value;
             }
-            // TODO use the actual things
             return new AstNode.Parameters(tokens[start].location, types, names);
         }, "parameters", new Pattern[] {start_block});
         var func_def_name = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {parameters});
         var type = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {func_def_name});
         return type;
     }, (List<Token> tokens, ref int i, Pattern self) => {
-        int start = i;
+        Location loc = tokens[i].location;
         List<AstNode> nodes = self.ParseTokens(tokens, ref i);
 
         string type = ((AstNode.Value)nodes[0]).value.value;
@@ -271,7 +272,11 @@ class Pattern {
         AstNode.FuncCall[] funcs = new AstNode.FuncCall[func_call_amount];
         for (int j = 4; j < nodes.Count - 1; j++) funcs[j-4] = (AstNode.FuncCall)nodes[j];
  
-        return new AstNode.FuncDef(tokens[start].location, name, type, funcs, parameters);
+        if (!Umi.function_args.TryAdd(name, parameters.types)) {
+            Umi.Crash($"Function `{name}` already defined", loc);
+        }
+
+        return new AstNode.FuncDef(loc, name, type, funcs, parameters);
     }, "function definition");
 
     // Workaround to allow multiple functions
@@ -294,6 +299,9 @@ class Output {
 }
 
 class Umi {
+
+    // TODO: allow function overloading
+    public static Dictionary<string, string[]> function_args = new Dictionary<string, string[]>();
 
     public static void Crash(string message, Location loc) {
         Console.WriteLine(loc + ": " + message);
@@ -374,6 +382,7 @@ class Umi {
         Output.WriteLine(".assembly UmiProgram {}\n");
         
         // TODO: use something like an alias instead
+        Umi.function_args["print"] = new string[] {"string"};
         Output.WriteLine(".method static void print(string)");
         Output.WriteLine("{");
         Output.Indent();
@@ -389,7 +398,7 @@ class Umi {
     static void Main(string[] args) {
         if (args.Length < 1) {
             Console.WriteLine("You must specify the path to the file");
-            return;
+            Environment.Exit(1);
         }
 
         List<Token> tokens = Lex(File.ReadAllText(args[0]));
