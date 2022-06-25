@@ -135,7 +135,7 @@ class Pattern {
     protected Pattern[] tails;
     readonly Token.Type token_type;
 
-    protected Pattern subpattern_head;
+    protected Pattern[] subpattern_heads;
     readonly string name;
 
     Pattern(Pattern[] tails, string name) {
@@ -156,32 +156,26 @@ class Pattern {
     } 
 
     public List<AstNode> ParseTokens(List<Token> tokens, ref int i) {
+        if (subpattern_heads == null) Umi.Crash("ParseTokens being called on primitive", tokens[i].location);
+        
         List<AstNode> nodes = new List<AstNode>();
-        if (subpattern_head == null) Umi.Crash("ParseTokens being called on primitive", tokens[i].location);
-        var pattern_node = subpattern_head;
-        var head_ast_node = pattern_node.GenAst(tokens, ref i);
-        if (head_ast_node != null) {
-            nodes.Add(head_ast_node);
-            // Console.WriteLine($"Added {pattern_node.token_type}");
-        } else {
-            Umi.Crash("Pretty sure this should never be reached", tokens[i].location);
-        }
+        Pattern[] tails = subpattern_heads;
 
-        while (pattern_node.tails != null && i < tokens.Count) {
-            var token = tokens[i];
+        while (tails != null && i < tokens.Count) {
             bool matched = false;
-            foreach (var child_node in pattern_node.tails) {
+            foreach (var child_node in tails) {
                 var ast_node = child_node.GenAst(tokens, ref i);
                 if (ast_node != null) {
                     nodes.Add(ast_node);
-                    pattern_node = child_node;
+                    tails = child_node.tails;
                     // Console.WriteLine($"In {(string)this} added {(string)child_node}");
                     matched = true;
                     break;
                 }
             }
             if (!matched) {
-                string expected = String.Join("/", Array.ConvertAll(pattern_node.tails, p => (string)p));
+                var token = tokens[i];
+                string expected = String.Join("/", Array.ConvertAll(tails, p => (string)p));
                 Umi.Crash($"Unexpected token; In {name} expected {expected} but found {token.type}", token.location);
             }
         }
@@ -209,7 +203,7 @@ class Pattern {
             additional_argument.tails[1] = comma;
             var first_argument = new Pattern(Token.Type.STRING, new Pattern[] {r_paran, comma});
             var l_paran = new Pattern(Token.Type.LPARAN, new Pattern[] {r_paran, first_argument});
-            subpattern_head = l_paran;
+            subpattern_heads = new Pattern[] {l_paran};
         }
 
         protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
@@ -227,7 +221,7 @@ class Pattern {
             var semicolon = new Pattern(Token.Type.STATEMENT_END);
             var arguments = new Arguments(new Pattern[] {semicolon});
             var name = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {arguments});
-            subpattern_head = name;
+            subpattern_heads = new Pattern[] {name};
         }
 
         protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
@@ -249,7 +243,7 @@ class Pattern {
             var first_param_var = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {r_paran, comma});
             var first_param_type = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {first_param_var});
             var l_paran = new Pattern(Token.Type.LPARAN, new Pattern[] {r_paran, first_param_type});
-            subpattern_head = l_paran;
+            subpattern_heads = new Pattern[] {l_paran};
         }
 
         protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
@@ -275,7 +269,7 @@ class Pattern {
             var parameters = new Parameters(new Pattern[] {start_block});
             var func_def_name = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {parameters});
             var type = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {func_def_name});
-            subpattern_head = type;
+            subpattern_heads = new Pattern[] {type};
         }
 
         protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
@@ -300,7 +294,7 @@ class Pattern {
         public Program() : base(null, "PROGRAM") {
             var func_def = new FuncDef(new Pattern[1]);
             func_def.tails[0] = func_def;
-            subpattern_head = func_def;
+            subpattern_heads = new Pattern[] {func_def};
         }
 
         // This shouldn't be called
@@ -423,6 +417,17 @@ class Umi {
         Output.Indent();
         Output.WriteLine("ldarg 0");
         Output.WriteLine("call void [mscorlib]System.Console::WriteLine(string)");
+        Output.WriteLine("ret");
+        Output.Unindent();
+        Output.WriteLine("}\n");
+
+        // TODO: make an overload of print
+        Umi.function_args["printn"] = new string[] {"int32"};
+        Output.WriteLine(".method static void printn(int32)");
+        Output.WriteLine("{");
+        Output.Indent();
+        Output.WriteLine("ldarg 0");
+        Output.WriteLine("call void [mscorlib]System.Console::WriteLine(int32)");
         Output.WriteLine("ret");
         Output.Unindent();
         Output.WriteLine("}\n");
