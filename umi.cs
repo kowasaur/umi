@@ -69,8 +69,8 @@ class AstNode {
     }
 
     public class Arguments : AstNode {
-        public readonly string[] args;
-        public Arguments(Location loc, string[] args) : base(loc) => this.args = args;
+        public readonly Token[] args;
+        public Arguments(Location loc, Token[] args) : base(loc) => this.args = args;
     }
 
     public class Parameters : AstNode {
@@ -84,19 +84,36 @@ class AstNode {
 
     public class FuncCall : AstNode {
         public readonly string name;
-        public readonly string[] arguments;
+        public readonly Arguments arguments;
 
-        public FuncCall(Location loc, string name, string[] args) : base(loc) {
+        public FuncCall(Location loc, string name, Arguments args) : base(loc) {
             this.name = name;
             arguments = args;
         }
 
         public override void GenIl() {
             // TODO do checking
-            foreach (var arg in arguments) {
-                Output.WriteLine($"ldstr \"{arg}\"");
+            string[] expected_types = Umi.function_args[name];
+            for (int i = 0; i < arguments.args.Length; i++) {
+                Token arg = arguments.args[i];
+                string expected = expected_types[i];
+                switch (arg.type) {
+                    case Token.Type.STRING:
+                        if (expected != "string") 
+                            Umi.Crash($"Incorrect type of argument. Expected {expected} but found string", location);
+                        Output.WriteLine($"ldstr \"{arg.value}\"");
+                        break;
+                    case Token.Type.INTEGER:
+                        if (expected != "int32") 
+                            Umi.Crash($"Incorrect type of argument. Expected {expected} but found int32", location);
+                        Output.WriteLine($"ldc.i4 {arg.value}");
+                        break;
+                    default:
+                        Umi.Crash("No argument IL generation for " + arg.type, arg.location);
+                        break;
+                }
             }
-            string args = String.Join(", ", Umi.function_args[name]);
+            string args = String.Join(", ", expected_types);
             Output.WriteLine($"call void {name} ({args})");
         }
     }
@@ -195,22 +212,34 @@ class Pattern {
         }
     }
 
+    // This is basically literals or variables
+    // Maybe I should think of a better name
+    class Value : NotToken {
+        public Value(Pattern[] tails) : base(tails, "VALUE") {
+            var str = new Pattern(Token.Type.STRING);
+            var integer = new Pattern(Token.Type.INTEGER);
+            subpattern_heads = new Pattern[] {str, integer};
+        }
+
+        protected override AstNode CreateAstNode(Location _, List<AstNode> nodes) => nodes[0];
+    }
+
     class Arguments : NotToken {
         public Arguments(Pattern[] tails) : base(tails, "ARGUMENTS") {
             var r_paran = new Pattern(Token.Type.RPARAN);
-            var additional_argument = new Pattern(Token.Type.STRING, new Pattern[] {r_paran, null});
+            var additional_argument = new Value(new Pattern[] {r_paran, null});
             var comma = new Pattern(Token.Type.COMMA, new Pattern[] {additional_argument});
             additional_argument.tails[1] = comma;
-            var first_argument = new Pattern(Token.Type.STRING, new Pattern[] {r_paran, comma});
+            var first_argument = new Value(new Pattern[] {r_paran, comma});
             var l_paran = new Pattern(Token.Type.LPARAN, new Pattern[] {r_paran, first_argument});
             subpattern_heads = new Pattern[] {l_paran};
         }
 
         protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
-            string[] args = new string[(nodes.Count - 1)/2];
+            Token[] args = new Token[(nodes.Count - 1)/2];
             // Ignore the brackets and commas
             for (int j = 1; j < nodes.Count - 1; j += 2) {
-                args[(j-1)/2] = ((AstNode.Value)nodes[j]).value.value;
+                args[(j-1)/2] = ((AstNode.Value)nodes[j]).value;
             }
             return new AstNode.Arguments(loc, args);
         }
@@ -226,7 +255,7 @@ class Pattern {
 
         protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
             string name = ((AstNode.Value)nodes[0]).value.value;
-            string[] args = ((AstNode.Arguments)nodes[1]).args;
+            AstNode.Arguments args = (AstNode.Arguments)nodes[1];
             return new AstNode.FuncCall(loc, name, args);
         }
     }
@@ -354,6 +383,7 @@ class Umi {
                     position.Increase(file[i]);
                     content += file[i];
                 }
+                value = content;
             } else switch (c) {
                 case '(':
                     type = Token.Type.LPARAN;
