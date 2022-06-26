@@ -4,8 +4,8 @@ using System.Collections.Generic;
 
 class Location {
 
-    public uint line;
-    public uint column;
+    uint line;
+    uint column;
 
     public Location(uint line, uint column) {
         this.line = line;
@@ -46,12 +46,11 @@ class Token {
         LCURLY,
         RCURLY,
         STATEMENT_END,
-        COMMA
+        COMMA,
+        EQUAL
     }
 
 }
-
-// TODO: make IL generation work properly
 
 class AstNode {
 
@@ -61,16 +60,51 @@ class AstNode {
         location = loc;
     }
 
-    public virtual void GenIl() => throw new NotImplementedException();
+    public virtual void GenIl(Dictionary<string, VarDef> _) => throw new NotImplementedException();
 
     public class Value : AstNode {
-        public readonly Token value;
-        public Value(Token value) : base(value.location) => this.value = value;
+        public readonly Token token;
+        public Value(Token token) : base(token.location) => this.token = token;
+
+        public override void GenIl(Dictionary<string, VarDef> local_vars) {
+            switch (token.type) {
+                case Token.Type.STRING:
+                    Output.WriteLine($"ldstr \"{token.value}\"");
+                    break;
+                case Token.Type.INTEGER:
+                    Output.WriteLine($"ldc.i4 {token.value}");
+                    break;
+                case Token.Type.IDENTIFIER:
+                    Output.WriteLine($"ldloc {local_vars[token.value].index}");
+                    break;
+                default:
+                    Umi.Crash("No Value IL generation for " + token.type, token.location);
+                    break;
+            }
+        }
+
+        public string Type(Dictionary<string, VarDef> local_vars) {
+            switch (token.type) {
+                case Token.Type.STRING:
+                    return "string";
+                case Token.Type.INTEGER:
+                    return "int32";
+                case Token.Type.IDENTIFIER:
+                    VarDef variable;
+                    if (!local_vars.TryGetValue(token.value, out variable)) {
+                        Umi.Crash($"Variable `{token.value}` not defined", location);
+                    };
+                    return variable.type;
+                default:
+                    Umi.Crash("No Value type for " + token.type, token.location);
+                    return "unreachable";
+            }
+        }
     }
 
     public class Arguments : AstNode {
-        public readonly Token[] args;
-        public Arguments(Location loc, Token[] args) : base(loc) => this.args = args;
+        public readonly Value[] args;
+        public Arguments(Location loc, Value[] args) : base(loc) => this.args = args;
     }
 
     public class Parameters : AstNode {
@@ -83,61 +117,103 @@ class AstNode {
     }
 
     public class FuncCall : AstNode {
-        public readonly string name;
-        public readonly Arguments arguments;
+        readonly string name;
+        readonly Value[] arguments;
 
         public FuncCall(Location loc, string name, Arguments args) : base(loc) {
             this.name = name;
-            arguments = args;
+            arguments = args.args;
         }
 
-        public override void GenIl() {
-            // TODO do checking
+        public override void GenIl(Dictionary<string, VarDef> local_vars) {
             string[] expected_types = Umi.function_args[name];
-            for (int i = 0; i < arguments.args.Length; i++) {
-                Token arg = arguments.args[i];
+            if (expected_types.Length != arguments.Length) {
+                Umi.Crash("Incorrect number of arguments", location);
+            }
+            for (int i = 0; i < arguments.Length; i++) {
+                Value arg = arguments[i];
                 string expected = expected_types[i];
-                switch (arg.type) {
-                    case Token.Type.STRING:
-                        if (expected != "string") 
-                            Umi.Crash($"Incorrect type of argument. Expected {expected} but found string", location);
-                        Output.WriteLine($"ldstr \"{arg.value}\"");
-                        break;
-                    case Token.Type.INTEGER:
-                        if (expected != "int32") 
-                            Umi.Crash($"Incorrect type of argument. Expected {expected} but found int32", location);
-                        Output.WriteLine($"ldc.i4 {arg.value}");
-                        break;
-                    default:
-                        Umi.Crash("No argument IL generation for " + arg.type, arg.location);
-                        break;
+                string arg_type = arg.Type(local_vars);
+                if (arg_type != expected) {
+                    Umi.Crash($"Incorrect type of argument. Expected {expected} but found {arg_type}", arg.location);
                 }
+                arg.GenIl(local_vars);
             }
             string args = String.Join(", ", expected_types);
             Output.WriteLine($"call void {name} ({args})");
         }
     }
-
-    public class FuncDef : AstNode {
+    
+    public class VarDef : AstNode {
         public readonly string name;
-        public readonly string return_type;
-        public readonly FuncCall[] function_calls;
-        public readonly Parameters parameters;
+        public readonly string type;
+        public int index; // in the function
+        readonly Value value;
 
-        public FuncDef(Location loc, string n, string t, FuncCall[] f, Parameters p) : base(loc) {
-            name = n;
-            return_type = t;
-            function_calls = f;
-            parameters = p;
+        public VarDef(Location loc, string name, string type, Value value) : base(loc) {
+            this.name = name;
+            this.type = type;
+            this.value = value;
         }
 
-        public override void GenIl() {
+        public override void GenIl(Dictionary<string, VarDef> local_vars) {
+            value.GenIl(local_vars);
+            Output.WriteLine($"stloc {index}");
+        }
+    }
+
+    public class FuncDef : AstNode {
+        readonly string name;
+        readonly string return_type;
+        readonly AstNode[] statements;
+        readonly Parameters parameters;
+        readonly Dictionary<string, VarDef> local_vars = new Dictionary<string, VarDef>();
+
+        public FuncDef(Location loc, List<AstNode> nodes) : base(loc) {
+            return_type = ((Value)nodes[0]).token.value;
+            name = ((Value)nodes[1]).token.value;
+
+            parameters = (Parameters)nodes[2];
+            if (!Umi.function_args.TryAdd(name, parameters.types)) {
+                Umi.Crash($"Function `{name}` already defined", loc);
+            }
+
+            int statements_amount = nodes.Count - 5;
+            statements = new AstNode[statements_amount];
+            for (int j = 4; j < nodes.Count - 1; j++) {
+                statements[j-4] = nodes[j];
+                if (nodes[j] is VarDef) {
+                    VarDef variable = (VarDef)nodes[j];
+                    if (!local_vars.TryAdd(variable.name, variable)) {
+                        Umi.Crash($"Local variable `{variable.name} already declared`", variable.location);
+                    };
+                }
+            }
+        }
+
+        public override void GenIl(Dictionary<string, VarDef> _) {
             Output.WriteLine($".method static void {name}()");
             Output.WriteLine("{");
             Output.Indent();
             if (name == "main") Output.WriteLine(".entrypoint");
+            if (local_vars.Count > 0) {
+                Output.WriteLine(".locals init (");
+                Output.Indent();
+                VarDef[] vars = new VarDef[local_vars.Count];
+                local_vars.Values.CopyTo(vars, 0);
+                for (int i = 0; i < vars.Length - 1; i++) {
+                    VarDef variable = vars[i];
+                    variable.index = i;
+                    Output.WriteLine($"{variable.type} {variable.name},");
+                }
+                VarDef last_var = vars[vars.Length - 1];
+                last_var.index = vars.Length - 1;
+                Output.WriteLine($"{last_var.type} {last_var.name}");
+                Output.Unindent();
+                Output.WriteLine(")");
+            }
 
-            foreach (var func_call in function_calls) func_call.GenIl();
+            foreach (var statement in statements) statement.GenIl(local_vars);
 
             Output.WriteLine("ret");
             Output.Unindent();
@@ -185,16 +261,11 @@ class Pattern {
                 if (ast_node != null) {
                     nodes.Add(ast_node);
                     tails = child_node.tails;
-                    // Console.WriteLine($"In {(string)this} added {(string)child_node}");
                     matched = true;
                     break;
                 }
             }
-            if (!matched) {
-                var token = tokens[i];
-                string expected = String.Join("/", Array.ConvertAll(tails, p => (string)p));
-                Umi.Crash($"Unexpected token; In {name} expected {expected} but found {token.type}", token.location);
-            }
+            if (!matched) return null;
         }
         
         return nodes;
@@ -207,7 +278,12 @@ class Pattern {
 
         protected override AstNode GenAst(List<Token> tokens, ref int i) {
             Location loc = tokens[i].location;
+            int old_i = i;
             List<AstNode> nodes = ParseTokens(tokens, ref i);
+            if (nodes == null) {
+                i = old_i;
+                return null;
+            }
             return CreateAstNode(loc, nodes);
         }
     }
@@ -218,7 +294,8 @@ class Pattern {
         public Value(Pattern[] tails) : base(tails, "VALUE") {
             var str = new Pattern(Token.Type.STRING);
             var integer = new Pattern(Token.Type.INTEGER);
-            subpattern_heads = new Pattern[] {str, integer};
+            var identifier = new Pattern(Token.Type.IDENTIFIER);
+            subpattern_heads = new Pattern[] {str, integer, identifier};
         }
 
         protected override AstNode CreateAstNode(Location _, List<AstNode> nodes) => nodes[0];
@@ -236,10 +313,10 @@ class Pattern {
         }
 
         protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
-            Token[] args = new Token[(nodes.Count - 1)/2];
+            AstNode.Value[] args = new AstNode.Value[(nodes.Count - 1)/2];
             // Ignore the brackets and commas
             for (int j = 1; j < nodes.Count - 1; j += 2) {
-                args[(j-1)/2] = ((AstNode.Value)nodes[j]).value;
+                args[(j-1)/2] = ((AstNode.Value)nodes[j]);
             }
             return new AstNode.Arguments(loc, args);
         }
@@ -247,17 +324,46 @@ class Pattern {
 
     class FuncCall : NotToken {
         public FuncCall(Pattern[] tails) : base(tails, "FUNC_CALL") {
-            var semicolon = new Pattern(Token.Type.STATEMENT_END);
-            var arguments = new Arguments(new Pattern[] {semicolon});
+            var arguments = new Arguments(null);
             var name = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {arguments});
             subpattern_heads = new Pattern[] {name};
         }
 
         protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
-            string name = ((AstNode.Value)nodes[0]).value.value;
+            string name = ((AstNode.Value)nodes[0]).token.value;
             AstNode.Arguments args = (AstNode.Arguments)nodes[1];
             return new AstNode.FuncCall(loc, name, args);
         }
+    }
+
+    class VarDef : NotToken {
+        public VarDef(Pattern[] tails) : base(tails, "VAR_DEF") {
+            var value = new Value(null);
+            var equal = new Pattern(Token.Type.EQUAL, new Pattern[] {value});
+            var name = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {equal});
+            var type = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {name});
+            subpattern_heads = new Pattern[] {type};
+        }
+
+        protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
+            string type = ((AstNode.Value)nodes[0]).token.value;
+            string name = ((AstNode.Value)nodes[1]).token.value;
+            AstNode.Value value = (AstNode.Value)nodes[3];
+            return new AstNode.VarDef(loc, name, type, value);
+        }
+    }
+
+    // Only in function body
+    class Statement : NotToken {
+        public Statement(Pattern[] tails) : base(tails, "STATEMENT") {
+            var semicolon = new Pattern(Token.Type.STATEMENT_END);
+            Pattern[] semicolon_array = new Pattern[] {semicolon};
+            var func_call = new FuncCall(semicolon_array);
+            var var_def = new VarDef(semicolon_array);
+            subpattern_heads = new Pattern[] {func_call, var_def};
+        }
+
+        protected override AstNode CreateAstNode(Location _, List<AstNode> nodes) => nodes[0];
     }
 
     class Parameters : NotToken {
@@ -281,9 +387,9 @@ class Pattern {
             string[] names = new string[(nodes.Count - 1)/3];
             // Ignore the brackets and commas
             for (int j = 1; j < nodes.Count - 1; j += 3) {
-                types[(j-1)/3] = ((AstNode.Value)nodes[j]).value.value;
+                types[(j-1)/3] = ((AstNode.Value)nodes[j]).token.value;
                 // TODO: pretty sure this should be j + 1
-                names[(j-1)/3] = ((AstNode.Value)nodes[j]).value.value;
+                names[(j-1)/3] = ((AstNode.Value)nodes[j]).token.value;
             }
             return new AstNode.Parameters(loc, types, names);
         }
@@ -292,7 +398,7 @@ class Pattern {
     class FuncDef : NotToken {
         public FuncDef(Pattern[] tails) : base(tails, "FUNC_DEF") {
             var end_block = new Pattern(Token.Type.RCURLY);
-            var statements = new FuncCall(new Pattern[] {end_block, null});
+            var statements = new Statement(new Pattern[] {end_block, null});
             statements.tails[1] = statements;
             var start_block = new Pattern(Token.Type.LCURLY, new Pattern[] {statements});
             var parameters = new Parameters(new Pattern[] {start_block});
@@ -302,19 +408,7 @@ class Pattern {
         }
 
         protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
-            string type = ((AstNode.Value)nodes[0]).value.value;
-            string name = ((AstNode.Value)nodes[1]).value.value;
-            AstNode.Parameters parameters = (AstNode.Parameters)nodes[2];
-
-            int func_call_amount = nodes.Count - 5;
-            AstNode.FuncCall[] funcs = new AstNode.FuncCall[func_call_amount];
-            for (int j = 4; j < nodes.Count - 1; j++) funcs[j-4] = (AstNode.FuncCall)nodes[j];
-    
-            if (!Umi.function_args.TryAdd(name, parameters.types)) {
-                Umi.Crash($"Function `{name}` already defined", loc);
-            }
-
-            return new AstNode.FuncDef(loc, name, type, funcs, parameters);
+            return new AstNode.FuncDef(loc, nodes);
         }
     }
 
@@ -400,6 +494,9 @@ class Umi {
                 case ';':
                     type = Token.Type.STATEMENT_END;
                     break;
+                case '=':
+                    type = Token.Type.EQUAL;
+                    break;
                 case ',':
                     type = Token.Type.COMMA;
                     break;
@@ -462,7 +559,7 @@ class Umi {
         Output.Unindent();
         Output.WriteLine("}\n");
 
-        foreach (var node in ast) node.GenIl();
+        foreach (var node in ast) node.GenIl(null);
     }
 
     static void Main(string[] args) {
@@ -474,6 +571,8 @@ class Umi {
         List<Token> tokens = Lex(File.ReadAllText(args[0]));
         int i = 0;
         List<AstNode> ast = new Pattern.Program().ParseTokens(tokens, ref i);
+        // TODO: better error message (currently this isn't even correct: it points to the start of the function)
+        if (ast == null) Crash($"Unexpected token: {tokens[i].type}", tokens[i].location);
         GenIlForProgram(ast);
     }
 
