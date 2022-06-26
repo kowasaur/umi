@@ -80,10 +80,14 @@ class AstNode {
                     break;
                 case Token.Type.IDENTIFIER:
                     VarDef variable = local_vars[token.value];
-                    if (variable.location > location) {
-                        Umi.Crash($"Can not use variable `{token.value}` before it is defined", location);
+                    if (variable.is_param) {
+                        Output.WriteLine($"ldarg {variable.index}");
+                    } else {
+                        if (variable.location > location) {
+                            Umi.Crash($"Can not use variable `{token.value}` before it is defined", location);
+                        }
+                        Output.WriteLine($"ldloc {variable.index}");
                     }
-                    Output.WriteLine($"ldloc {variable.index}");
                     break;
                 default:
                     Umi.Crash("No Value IL generation for " + token.type, token.location);
@@ -91,7 +95,7 @@ class AstNode {
             }
         }
 
-        public string Type(Dictionary<string, VarDef> local_vars) {
+        string Type(Dictionary<string, VarDef> local_vars) {
             switch (token.type) {
                 case Token.Type.STRING:
                     return "string";
@@ -100,12 +104,19 @@ class AstNode {
                 case Token.Type.IDENTIFIER:
                     VarDef variable;
                     if (!local_vars.TryGetValue(token.value, out variable)) {
-                        Umi.Crash($"Variable `{token.value}` not defined", location);
-                    };
+                        Umi.Crash($"Variable `{token.value}` is not defined", location);
+                    }
                     return variable.type;
                 default:
                     Umi.Crash("No Value type for " + token.type, token.location);
                     return "unreachable";
+            }
+        }
+
+        public void ExpectType(string expected, Dictionary<string, VarDef> local_vars) {
+            string actual_type = Type(local_vars);
+            if (actual_type != expected) {
+                Umi.Crash($"Incorrect type. Expected {expected} but found {actual_type}", location);
             }
         }
     }
@@ -140,14 +151,11 @@ class AstNode {
             }
             for (int i = 0; i < arguments.Length; i++) {
                 Value arg = arguments[i];
-                string expected = expected_types[i];
-                string arg_type = arg.Type(local_vars);
-                if (arg_type != expected) {
-                    Umi.Crash($"Incorrect type of argument. Expected {expected} but found {arg_type}", arg.location);
-                }
+                arg.ExpectType(expected_types[i], local_vars);
                 arg.GenIl(local_vars);
             }
             string args = String.Join(", ", expected_types);
+            // TODO: use real type
             Output.WriteLine($"call void {name} ({args})");
         }
     }
@@ -162,25 +170,38 @@ class AstNode {
         }
 
         public override void GenIl(Dictionary<string, VarDef> local_vars) {
-            VarDef variable = local_vars[name];
+            VarDef variable;
+            if (!local_vars.TryGetValue(name, out variable)) {
+                Umi.Crash($"Variable `{name}` is not defined", location);
+            }
             if (variable.location > location) {
                 Umi.Crash($"Can not assign to variable `{name}` before it is defined", location);
             }
+            value.ExpectType(variable.type, local_vars);
             value.GenIl(local_vars);
-            Output.WriteLine($"stloc {local_vars[name].index}");
+            Output.WriteLine($"stloc {variable.index}");
         }
     }
-
+    
+    // Probably shouldn't be an AstNode
     public class VarDef : AstNode {
         public readonly VarAssign assignment;
-        // public readonly string name;
+        public readonly string name;
         public readonly string type;
+        public readonly bool is_param = false; // local variable or parameter
         public int index; // in the function
 
         public VarDef(Location loc, string type, VarAssign assignment) : base(loc) {
-            // this.name = assignment.name;
+            this.name = assignment.name;
             this.type = type;
             this.assignment = assignment;
+        }
+
+        public VarDef(Location loc, string type, string name, int index) : base(loc) {
+            this.name = name;
+            this.type = type;
+            this.index = index;
+            this.is_param = true;
         }
     }
 
@@ -199,15 +220,22 @@ class AstNode {
             if (!Umi.function_args.TryAdd(name, parameters.types)) {
                 Umi.Crash($"Function `{name}` already defined", loc);
             }
+            for (int i = 0; i < parameters.names.Length; i++) {
+                string param_type = parameters.types[i];
+                string param_name = parameters.names[i];
+                VarDef variable = new VarDef(parameters.location, param_type, param_name, i);
+                if (!local_vars.TryAdd(param_name, variable)) {
+                    Umi.Crash($"Parameter with name `{param_name}` already exists", parameters.location);
+                };
+            }
 
             int statements_amount = nodes.Count - 5;
             statements = new AstNode[statements_amount];
             for (int j = 4; j < nodes.Count - 1; j++) {
                 if (nodes[j] is VarDef) {
                     VarDef variable = (VarDef)nodes[j];
-                    string var_name = variable.assignment.name;
-                    if (!local_vars.TryAdd(var_name, variable)) {
-                        Umi.Crash($"Local variable `{var_name}` already defined", variable.location);
+                    if (!local_vars.TryAdd(variable.name, variable)) {
+                        Umi.Crash($"Local variable `{variable.name}` already defined", variable.location);
                     };
                     statements[j-4] = variable.assignment;
                 } else {
@@ -217,27 +245,26 @@ class AstNode {
         }
 
         public override void GenIl(Dictionary<string, VarDef> _) {
-            Output.WriteLine($".method static void {name}()");
+            string param = String.Join(", ", parameters.types);
+            Output.WriteLine($".method static {return_type} {name}({param})");
             Output.WriteLine("{");
             Output.Indent();
             if (name == "main") Output.WriteLine(".entrypoint");
-            if (local_vars.Count > 0) {
-                Output.WriteLine(".locals init (");
-                Output.Indent();
-                VarDef[] vars = new VarDef[local_vars.Count];
-                local_vars.Values.CopyTo(vars, 0);
-                for (int i = 0; i < vars.Length - 1; i++) {
-                    VarDef variable = vars[i];
-                    variable.index = i;
-                    Output.WriteLine($"{variable.type} {variable.assignment.name},");
-                }
-                VarDef last_var = vars[vars.Length - 1];
-                last_var.index = vars.Length - 1;
-                Output.WriteLine($"{last_var.type} {last_var.assignment.name}");
-                Output.Unindent();
-                Output.WriteLine(")");
+            
+            Output.WriteLine(".locals init (");
+            Output.Indent();
+            int local_count = 0;
+            foreach (VarDef variable in local_vars.Values) if (!variable.is_param) {
+                variable.index = local_count++;
+                if (local_count == local_vars.Count - parameters.names.Length) {
+                    Output.WriteLine($"{variable.type} {variable.name}");
+                } else {
+                    Output.WriteLine($"{variable.type} {variable.name},");
+                }   
             }
-
+            Output.Unindent();
+            Output.WriteLine(")");
+            
             foreach (var statement in statements) statement.GenIl(local_vars);
 
             Output.WriteLine("ret");
@@ -426,8 +453,7 @@ class Pattern {
             // Ignore the brackets and commas
             for (int j = 1; j < nodes.Count - 1; j += 3) {
                 types[(j-1)/3] = ((AstNode.Value)nodes[j]).token.value;
-                // TODO: pretty sure this should be j + 1
-                names[(j-1)/3] = ((AstNode.Value)nodes[j]).token.value;
+                names[(j-1)/3] = ((AstNode.Value)nodes[j+1]).token.value;
             }
             return new AstNode.Parameters(loc, types, names);
         }
