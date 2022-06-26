@@ -23,6 +23,10 @@ class Location {
     
     public static implicit operator string(Location l) => $"{l.line}:{l.column}";
 
+    // Probably should consider column as well
+    public static bool operator >(Location a, Location b) => a.line > b.line;
+    public static bool operator <(Location a, Location b) => a.line < b.line;
+
 }
 
 class Token {
@@ -75,7 +79,11 @@ class AstNode {
                     Output.WriteLine($"ldc.i4 {token.value}");
                     break;
                 case Token.Type.IDENTIFIER:
-                    Output.WriteLine($"ldloc {local_vars[token.value].index}");
+                    VarDef variable = local_vars[token.value];
+                    if (variable.location > location) {
+                        Umi.Crash($"Can not use variable `{token.value}` before it is defined", location);
+                    }
+                    Output.WriteLine($"ldloc {variable.index}");
                     break;
                 default:
                     Umi.Crash("No Value IL generation for " + token.type, token.location);
@@ -144,21 +152,35 @@ class AstNode {
         }
     }
     
-    public class VarDef : AstNode {
+    public class VarAssign : AstNode {
         public readonly string name;
-        public readonly string type;
-        public int index; // in the function
         readonly Value value;
 
-        public VarDef(Location loc, string name, string type, Value value) : base(loc) {
+        public VarAssign(Location loc, string name, Value value) : base(loc) {
             this.name = name;
-            this.type = type;
             this.value = value;
         }
 
         public override void GenIl(Dictionary<string, VarDef> local_vars) {
+            VarDef variable = local_vars[name];
+            if (variable.location > location) {
+                Umi.Crash($"Can not assign to variable `{name}` before it is defined", location);
+            }
             value.GenIl(local_vars);
-            Output.WriteLine($"stloc {index}");
+            Output.WriteLine($"stloc {local_vars[name].index}");
+        }
+    }
+
+    public class VarDef : AstNode {
+        public readonly VarAssign assignment;
+        // public readonly string name;
+        public readonly string type;
+        public int index; // in the function
+
+        public VarDef(Location loc, string type, VarAssign assignment) : base(loc) {
+            // this.name = assignment.name;
+            this.type = type;
+            this.assignment = assignment;
         }
     }
 
@@ -181,12 +203,15 @@ class AstNode {
             int statements_amount = nodes.Count - 5;
             statements = new AstNode[statements_amount];
             for (int j = 4; j < nodes.Count - 1; j++) {
-                statements[j-4] = nodes[j];
                 if (nodes[j] is VarDef) {
                     VarDef variable = (VarDef)nodes[j];
-                    if (!local_vars.TryAdd(variable.name, variable)) {
-                        Umi.Crash($"Local variable `{variable.name} already declared`", variable.location);
+                    string var_name = variable.assignment.name;
+                    if (!local_vars.TryAdd(var_name, variable)) {
+                        Umi.Crash($"Local variable `{var_name}` already defined", variable.location);
                     };
+                    statements[j-4] = variable.assignment;
+                } else {
+                    statements[j-4] = nodes[j];
                 }
             }
         }
@@ -204,11 +229,11 @@ class AstNode {
                 for (int i = 0; i < vars.Length - 1; i++) {
                     VarDef variable = vars[i];
                     variable.index = i;
-                    Output.WriteLine($"{variable.type} {variable.name},");
+                    Output.WriteLine($"{variable.type} {variable.assignment.name},");
                 }
                 VarDef last_var = vars[vars.Length - 1];
                 last_var.index = vars.Length - 1;
-                Output.WriteLine($"{last_var.type} {last_var.name}");
+                Output.WriteLine($"{last_var.type} {last_var.assignment.name}");
                 Output.Unindent();
                 Output.WriteLine(")");
             }
@@ -336,20 +361,32 @@ class Pattern {
         }
     }
 
-    class VarDef : NotToken {
-        public VarDef(Pattern[] tails) : base(tails, "VAR_DEF") {
+    class VarAssign : NotToken {
+        public VarAssign(Pattern[] tails) : base(tails, "VAR_ASSIGN") {
             var value = new Value(null);
             var equal = new Pattern(Token.Type.EQUAL, new Pattern[] {value});
             var name = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {equal});
-            var type = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {name});
+            subpattern_heads = new Pattern[] {name};
+        }
+
+        protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
+            string name = ((AstNode.Value)nodes[0]).token.value;
+            AstNode.Value value = (AstNode.Value)nodes[2];
+            return new AstNode.VarAssign(loc, name, value);
+        }
+    }
+
+    class VarDef : NotToken {
+        public VarDef(Pattern[] tails) : base(tails, "VAR_DEF") {
+            var assign = new VarAssign(null);
+            var type = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {assign});
             subpattern_heads = new Pattern[] {type};
         }
 
         protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
             string type = ((AstNode.Value)nodes[0]).token.value;
-            string name = ((AstNode.Value)nodes[1]).token.value;
-            AstNode.Value value = (AstNode.Value)nodes[3];
-            return new AstNode.VarDef(loc, name, type, value);
+            AstNode.VarAssign assignment = (AstNode.VarAssign)nodes[1];
+            return new AstNode.VarDef(loc, type, assignment);
         }
     }
 
@@ -359,8 +396,9 @@ class Pattern {
             var semicolon = new Pattern(Token.Type.STATEMENT_END);
             Pattern[] semicolon_array = new Pattern[] {semicolon};
             var func_call = new FuncCall(semicolon_array);
+            var var_assign = new VarAssign(semicolon_array);
             var var_def = new VarDef(semicolon_array);
-            subpattern_heads = new Pattern[] {func_call, var_def};
+            subpattern_heads = new Pattern[] {func_call, var_assign, var_def};
         }
 
         protected override AstNode CreateAstNode(Location _, List<AstNode> nodes) => nodes[0];
