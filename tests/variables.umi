@@ -1,0 +1,12 @@
+void main() {
+    string message = "hello!";
+    print(message);
+
+    int32 number = 32;
+    int32 number_2 = number;
+    printn(number);
+    printn(number_2);
+
+    message = "goodbye :(";
+    print(message);
+}
