@@ -160,6 +160,7 @@ class AstNode {
         }
     }
     
+    // TODO: prevent assigning to parameters or make it work properly
     public class VarAssign : AstNode {
         public readonly string name;
         readonly Value value;
@@ -275,6 +276,7 @@ class AstNode {
 
 }
 
+// TODO: completely rework parser again so patterns can reference themselves
 class Pattern {
 
     protected Pattern[] tails;

@@ -1,0 +1,22 @@
+void exclaim() {
+    print("poggers!");
+}
+
+void greet(string name, int32 age) {
+    string message = "Hello, ";
+    print(message);
+    print(name);
+    message = "Aged ";
+    print(message);
+    printn(age);
+    exclaim();
+}
+
+void greetTim(int32 age) {
+    greet("Tim", age);
+}
+
+void main() {
+    greet("Joe", 3333);
+    greetTim(52);
+}
