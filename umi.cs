@@ -199,30 +199,17 @@ abstract class Grammar {
 
         var STATEMENTS = new Multiple<AstNode>("STATEMENTS", new Grammar[] {STATEMENT, null}); 
 
-        // TODO: convert to using Multiple
-        var PARAMS_LIST = new Pattern("PARAMS_LIST", new Grammar[][] {
-            new Grammar[] {IDENTIFIER, IDENTIFIER, COMMA, null},
-            new Grammar[] {IDENTIFIER, IDENTIFIER}
-        }, (loc, nodes) => {
-            var new_type = ((AstNode.Value)nodes[0]).token.value;
-            var new_name = ((AstNode.Value)nodes[1]).token.value;
-            if (nodes.Count == 2) return new AstNode.ParamList(loc, new_type, new_name);
-            var param_list = (AstNode.ParamList)nodes[3];
-            param_list.types.Add(new_type);
-            param_list.names.Add(new_name);
-            return param_list;
-        });
-        PARAMS_LIST.possible_patterns[0][3] = PARAMS_LIST;
-
+        var PARAM = new Pattern("PARAM", new Grammar[] {IDENTIFIER, IDENTIFIER}, 
+            (loc, nodes) => new AstNode.Param(loc, nodes)
+        );
+        var PARAM_LIST = new Multiple<AstNode.Param>("PARAM_LIST", new Grammar[] {PARAM, COMMA, null});
         var PARAMETERS = new Pattern("PARAMETERS", new Grammar[][] {
             new Grammar[] {LPARAN, RPARAN},
-            new Grammar[] {LPARAN, PARAMS_LIST, RPARAN}
+            new Grammar[] {LPARAN, PARAM_LIST, RPARAN}
         }, (loc, nodes) => {
-            if (nodes.Count == 2) return new AstNode.Parameters(loc, new string[0], new string[0]);
-            var param_list = ((AstNode.ParamList)nodes[1]);
-            param_list.types.Reverse();
-            param_list.names.Reverse();
-            return new AstNode.Parameters(loc, param_list.types.ToArray(), param_list.names.ToArray());
+            if (nodes.Count == 2) return new AstNode.Parameters(loc, new AstNode.Param[0]);
+            var param_list = ((AstNode.Multiple<AstNode.Param>)nodes[1]).ToArray();
+            return new AstNode.Parameters(loc, param_list);
         });
 
         var FUNC_DEF = new Pattern("FUNC_DEF", 
@@ -244,7 +231,7 @@ abstract class Grammar {
 
 }
 
-class AstNode {
+abstract class AstNode {
 
     public readonly Location location;
 
@@ -252,6 +239,7 @@ class AstNode {
         location = loc;
     }
 
+    public virtual Name CreateNameInfo() => throw new NotImplementedException();
     public virtual void GenIl(Dictionary<string, VarDef> _) => throw new NotImplementedException();
 
     public class Value : AstNode {
@@ -309,21 +297,6 @@ class AstNode {
         }
     }
 
-    public class Arguments : AstNode {
-        public readonly Value[] args;
-        public Arguments(Location loc, Value[] args) : base(loc) => this.args = args;
-    }
-
-    // TODO: make a param class instead and use multiple
-    public class ParamList : AstNode {
-        public readonly List<string> types = new List<string>();
-        public readonly List<string> names = new List<string>();
-        public ParamList(Location loc, string type, string name) : base(loc) {
-            types.Add(type);
-            names.Add(name);
-        }
-    }
-
     public class Multiple<T> : AstNode where T : AstNode {
         public readonly List<T> list = new List<T>();
         public Multiple(T thing): base(thing.location) => list.Add(thing);
@@ -334,13 +307,23 @@ class AstNode {
         }
     }
 
-    public class Parameters : AstNode {
-        public readonly string[] types;
-        public readonly string[] names;
-        public Parameters(Location loc, string[] types, string[] names) : base(loc) {
-            this.types = types;
-            this.names = names;
+    public class Arguments : AstNode {
+        public readonly Value[] args;
+        public Arguments(Location loc, Value[] args) : base(loc) => this.args = args;
+    }
+
+    public class Param : AstNode {
+        public readonly string type;
+        public readonly string name;
+        public Param(Location loc, List<AstNode> nodes) : base(loc) {
+            this.type = ((AstNode.Value)nodes[0]).token.value;
+            this.name = ((AstNode.Value)nodes[1]).token.value;
         }
+    }
+
+    public class Parameters : AstNode {
+        public readonly Param[] parameters;
+        public Parameters(Location loc, Param[] paras) : base(loc) => parameters = paras;
     }
 
     public class FuncCall : AstNode {
@@ -353,7 +336,7 @@ class AstNode {
         }
 
         public override void GenIl(Dictionary<string, VarDef> local_vars) {
-            string[] expected_types = Umi.function_args[name];
+            string[] expected_types = ((Name.FuncDef)Umi.global_namespace[name]).param_types;
             if (expected_types.Length != arguments.Length) {
                 Umi.Crash("Incorrect number of arguments", location);
             }
@@ -418,21 +401,20 @@ class AstNode {
         public readonly string name;
         readonly string return_type;
         readonly AstNode[] statements;
-        // TODO: make this not public
-        public readonly Parameters parameters;
+        readonly Param[] parameters;
         readonly Dictionary<string, VarDef> local_vars = new Dictionary<string, VarDef>();
 
         public FuncDef(Location loc, List<AstNode> nodes) : base(loc) {
             return_type = ((Value)nodes[0]).token.value;
             name = ((Value)nodes[1]).token.value;
 
-            parameters = (Parameters)nodes[2];
-            for (int i = 0; i < parameters.names.Length; i++) {
-                string param_type = parameters.types[i];
-                string param_name = parameters.names[i];
-                VarDef variable = new VarDef(parameters.location, param_type, param_name, i);
+            parameters = ((Parameters)nodes[2]).parameters;
+            for (int i = 0; i < parameters.Length; i++) {
+                string param_type = parameters[i].type;
+                string param_name = parameters[i].name;
+                VarDef variable = new VarDef(parameters[i].location, param_type, param_name, i);
                 if (!local_vars.TryAdd(param_name, variable)) {
-                    Umi.Crash($"Parameter with name `{param_name}` already exists", parameters.location);
+                    Umi.Crash($"Parameter with name `{param_name}` already exists", parameters[i].location);
                 };
             }
 
@@ -448,8 +430,10 @@ class AstNode {
             }
         }
 
+        public override Name CreateNameInfo() => new Name.FuncDef(Array.ConvertAll(parameters, p => p.type));
+
         public override void GenIl(Dictionary<string, VarDef> _) {
-            string param = String.Join(", ", parameters.types);
+            string param = String.Join(", ", Array.ConvertAll(parameters, p => p.type));
             Output.WriteLine($".method static {return_type} {name}({param})");
             Output.WriteLine("{");
             Output.Indent();
@@ -460,7 +444,7 @@ class AstNode {
             int local_count = 0;
             foreach (VarDef variable in local_vars.Values) if (!variable.is_param) {
                 variable.index = local_count++;
-                if (local_count == local_vars.Count - parameters.names.Length) {
+                if (local_count == local_vars.Count - parameters.Length) {
                     Output.WriteLine($"{variable.type} {variable.name}");
                 } else {
                     Output.WriteLine($"{variable.type} {variable.name},");
@@ -482,12 +466,21 @@ class AstNode {
 
         public Program(FuncDef[] func_defs) : base(func_defs[0].location) => this.func_defs = func_defs;
 
+        public override Name CreateNameInfo() {
+            foreach(FuncDef func_def in func_defs) {
+                if (!Umi.global_namespace.TryAdd(func_def.name, func_def.CreateNameInfo())) {
+                    Umi.Crash($"Function `{func_def.name}` already defined", func_def.location);
+                }
+            }
+            return null;
+        }
+
         public override void GenIl(Dictionary<string, VarDef> _) {
             File.Delete("output.il");
             Output.WriteLine(".assembly UmiProgram {}\n");
             
             // TODO: use something like an alias instead
-            Umi.function_args["print"] = new string[] {"string"};
+            Umi.global_namespace["print"] = new Name.FuncDef(new string[] {"string"});
             Output.WriteLine(".method static void print(string)");
             Output.WriteLine("{");
             Output.Indent();
@@ -498,7 +491,7 @@ class AstNode {
             Output.WriteLine("}\n");
 
             // TODO: make an overload of print
-            Umi.function_args["printn"] = new string[] {"int32"};
+            Umi.global_namespace["printn"] = new Name.FuncDef(new string[] {"int32"});
             Output.WriteLine(".method static void printn(int32)");
             Output.WriteLine("{");
             Output.Indent();
@@ -508,14 +501,7 @@ class AstNode {
             Output.Unindent();
             Output.WriteLine("}\n");
 
-            foreach(FuncDef func_def in func_defs) {
-                // TODO: move this somewhere else
-                // It can't be in the constructor of funcdef because backtracking breaks
-                if (!Umi.function_args.TryAdd(func_def.name, func_def.parameters.types)) {
-                    Umi.Crash($"Function `{func_def.name}` already defined", func_def.location);
-                }
-                func_def.GenIl(null);
-            }
+            foreach(FuncDef func_def in func_defs) func_def.GenIl(null);
         }
     }
 
@@ -532,10 +518,17 @@ class Output {
     public static void Unindent() => indentation -= 4;
 }
 
-class Umi {
+abstract class Name {
+    public class FuncDef : Name {
+        // TODO: allow function overloading
+        public string[] param_types;
+        public FuncDef(string[] arg_types) => this.param_types = arg_types;
+    }
+}
 
-    // TODO: allow function overloading
-    public static Dictionary<string, string[]> function_args = new Dictionary<string, string[]>();
+class Umi {
+    
+    public static readonly Dictionary<string, Name> global_namespace = new Dictionary<string, Name>();
 
     public static void Crash(string message, Location loc) {
         Console.WriteLine(loc + ": " + message);
@@ -634,10 +627,10 @@ class Umi {
 
         List<Token> tokens = Lex(File.ReadAllText(args[0]));
         AstNode.Program ast = Grammar.ParseTokens(tokens);
+        ast.CreateNameInfo();
         ast.GenIl(null);
 
-        // TODO: better error message (currently this isn't even correct: it points to the start of the function)
-        // if (ast == null) Crash($"Unexpected token: {tokens[i].type}", tokens[i].location);
+        // TODO: better error messages
     }
 
 }
