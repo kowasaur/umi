@@ -56,6 +56,194 @@ class Token {
 
 }
 
+abstract class Grammar {
+
+    protected abstract AstNode GenAst();
+
+    static List<Token> tokens;
+    static int i = 0; // the cursor in tokens
+
+    class Tok : Grammar {
+        readonly Token.Type token_type;
+
+        public Tok(Token.Type token_type) => this.token_type = token_type;
+
+        protected override AstNode GenAst() {
+            if (i == tokens.Count || tokens[i].type != token_type) return null;
+            return new AstNode.Value(tokens[i++]);
+        }
+
+        public static implicit operator string(Tok t) => t.token_type.ToString();
+    }
+
+    class Pattern : Grammar {
+        public readonly Grammar[][] possible_patterns;
+        public delegate AstNode NodeCreate(Location loc, List<AstNode> nodes);
+        NodeCreate CreateAstNode;
+        readonly string name;
+
+        public Pattern(string name, Grammar[][] posible_patterns, NodeCreate CreateAstNode) {
+            this.name = name;
+            this.possible_patterns = posible_patterns;
+            this.CreateAstNode = CreateAstNode;
+        }
+        public Pattern(string name, Grammar[] pattern, NodeCreate CreateAstNode) {
+            this.name = name;
+            this.possible_patterns = new Grammar[][] {pattern};
+            this.CreateAstNode = CreateAstNode;
+        }
+
+        // When the pattern is only 1 thing long but there's different possibilites
+        public Pattern(string name, Grammar[] options) {
+            this.name = name;
+            possible_patterns = new Grammar[options.Length][];
+            for (int i = 0; i < options.Length; i++) {
+                possible_patterns[i] = new Grammar[] {options[i]}; 
+            }
+            this.CreateAstNode = (_, nodes) => nodes[0];
+        }
+
+        public static implicit operator string(Pattern p) => p.name;
+
+        protected override AstNode GenAst() {
+            if (i == tokens.Count) return null;
+            Location loc = tokens[i].location;
+            List<AstNode> nodes = Parse();
+            if (nodes == null) return null;
+            return CreateAstNode(loc, nodes);
+        }
+
+        public List<AstNode> Parse() {
+            List<AstNode> nodes = new List<AstNode>();
+
+            foreach (Grammar[] pattern in possible_patterns) {
+                bool matched = true;
+                int old_i = i;
+                foreach (Grammar grammar in pattern) {
+                    var ast_node = grammar.GenAst();
+                    if (ast_node == null) {
+                        matched = false;
+                        break;
+                    }
+                    nodes.Add(ast_node);
+                }
+                if (matched) return nodes;
+                i = old_i;
+                nodes = new List<AstNode>();
+            }
+
+            return null;
+        }
+    }
+
+    class Multiple<T> : Pattern where T : AstNode {
+        // grammar must end with null
+        public Multiple(string name, Grammar[] grammar) : base(name, 
+            new Grammar[][] {grammar, new Grammar[] {grammar[0]}},
+            (_, nodes) => {
+                var new_value = (T)nodes[0];
+                if (nodes.Count == 1) return new AstNode.Multiple<T>(new_value);
+                var values = (AstNode.Multiple<T>)nodes[nodes.Count - 1];
+                values.list.Add(new_value);
+                return values;
+            }
+        ) {
+            possible_patterns[0][grammar.Length - 1] = this;
+        }
+    }
+
+    static Pattern CreateProgramGrammar() {
+        var LPARAN = new Tok(Token.Type.LPARAN);
+        var RPARAN = new Tok(Token.Type.RPARAN);
+        var LCURLY = new Tok(Token.Type.LCURLY);
+        var RCURLY = new Tok(Token.Type.RCURLY);
+        var COMMA = new Tok(Token.Type.COMMA);
+        var IDENTIFIER = new Tok(Token.Type.IDENTIFIER);
+        var STRING = new Tok(Token.Type.STRING);
+        var INTEGER = new Tok(Token.Type.INTEGER);
+        var EQUAL = new Tok(Token.Type.EQUAL);
+        var SEMICOLON = new Tok(Token.Type.STATEMENT_END);
+
+        var VALUE = new Pattern("VALUE", new Grammar[] {STRING, INTEGER, IDENTIFIER});
+
+        var ARG_LIST = new Multiple<AstNode.Value>("ARG_LIST", new Grammar[] {VALUE, COMMA, null});
+        var ARGUMENTS = new Pattern("ARGUMENTS", new Grammar[][] {
+            new Grammar[] {LPARAN, RPARAN},
+            new Grammar[] {LPARAN, ARG_LIST, RPARAN}
+        }, (loc, nodes) => {
+            if (nodes.Count == 2) return new AstNode.Arguments(loc, new AstNode.Value[0]);
+            var values = ((AstNode.Multiple<AstNode.Value>)nodes[1]).ToArray();
+            return new AstNode.Arguments(loc, values);
+        });
+
+        var FUNC_CALL = new Pattern("FUNC_CALL", new Grammar[] {IDENTIFIER, ARGUMENTS}, (loc, nodes) => {
+            string name = ((AstNode.Value)nodes[0]).token.value;
+            return new AstNode.FuncCall(loc, name, (AstNode.Arguments)nodes[1]);
+        });
+
+        var VAR_ASSIGN = new Pattern("VAR_ASSIGN", new Grammar[] {IDENTIFIER, EQUAL, VALUE}, (loc, nodes) => {
+            string name = ((AstNode.Value)nodes[0]).token.value;
+            return new AstNode.VarAssign(loc, name, (AstNode.Value)nodes[2]);
+        });
+
+        var VAR_DEF = new Pattern("VAR_DEF", new Grammar[] {IDENTIFIER, VAR_ASSIGN}, (loc, nodes) => {
+            string type = ((AstNode.Value)nodes[0]).token.value;
+            return new AstNode.VarDef(loc, type, (AstNode.VarAssign)nodes[1]);
+        });
+
+        var STATEMENT = new Pattern("STATEMENT", new Grammar[][] {
+            new Grammar[] {FUNC_CALL, SEMICOLON},
+            new Grammar[] {VAR_DEF, SEMICOLON},
+            new Grammar[] {VAR_ASSIGN, SEMICOLON}
+        }, (_, nodes) => nodes[0]);
+
+        var STATEMENTS = new Multiple<AstNode>("STATEMENTS", new Grammar[] {STATEMENT, null}); 
+
+        // TODO: convert to using Multiple
+        var PARAMS_LIST = new Pattern("PARAMS_LIST", new Grammar[][] {
+            new Grammar[] {IDENTIFIER, IDENTIFIER, COMMA, null},
+            new Grammar[] {IDENTIFIER, IDENTIFIER}
+        }, (loc, nodes) => {
+            var new_type = ((AstNode.Value)nodes[0]).token.value;
+            var new_name = ((AstNode.Value)nodes[1]).token.value;
+            if (nodes.Count == 2) return new AstNode.ParamList(loc, new_type, new_name);
+            var param_list = (AstNode.ParamList)nodes[3];
+            param_list.types.Add(new_type);
+            param_list.names.Add(new_name);
+            return param_list;
+        });
+        PARAMS_LIST.possible_patterns[0][3] = PARAMS_LIST;
+
+        var PARAMETERS = new Pattern("PARAMETERS", new Grammar[][] {
+            new Grammar[] {LPARAN, RPARAN},
+            new Grammar[] {LPARAN, PARAMS_LIST, RPARAN}
+        }, (loc, nodes) => {
+            if (nodes.Count == 2) return new AstNode.Parameters(loc, new string[0], new string[0]);
+            var param_list = ((AstNode.ParamList)nodes[1]);
+            param_list.types.Reverse();
+            param_list.names.Reverse();
+            return new AstNode.Parameters(loc, param_list.types.ToArray(), param_list.names.ToArray());
+        });
+
+        var FUNC_DEF = new Pattern("FUNC_DEF", 
+            new Grammar[] {IDENTIFIER, IDENTIFIER, PARAMETERS, LCURLY, STATEMENTS, RCURLY}, 
+            (loc, nodes) => new AstNode.FuncDef(loc, nodes)
+        );
+
+        var FUNC_DEFS = new Multiple<AstNode.FuncDef>("FUNC_DEFS", new Grammar[] {FUNC_DEF, null});
+        var PROGRAM = new Pattern("PROGRAM", new Grammar[] {FUNC_DEFS}, null);
+        return PROGRAM;
+    }
+
+    public static AstNode.Program ParseTokens(List<Token> toks) {
+        tokens = toks;
+        List<AstNode> ast = CreateProgramGrammar().Parse();
+        if (ast == null) return null;
+        return new AstNode.Program(((AstNode.Multiple<AstNode.FuncDef>)ast[0]).ToArray());
+    }
+
+}
+
 class AstNode {
 
     public readonly Location location;
@@ -124,6 +312,26 @@ class AstNode {
     public class Arguments : AstNode {
         public readonly Value[] args;
         public Arguments(Location loc, Value[] args) : base(loc) => this.args = args;
+    }
+
+    // TODO: make a param class instead and use multiple
+    public class ParamList : AstNode {
+        public readonly List<string> types = new List<string>();
+        public readonly List<string> names = new List<string>();
+        public ParamList(Location loc, string type, string name) : base(loc) {
+            types.Add(type);
+            names.Add(name);
+        }
+    }
+
+    public class Multiple<T> : AstNode where T : AstNode {
+        public readonly List<T> list = new List<T>();
+        public Multiple(T thing): base(thing.location) => list.Add(thing);
+        // This should only be called once since it mutates list
+        public T[] ToArray() {
+            list.Reverse();
+            return list.ToArray();
+        }
     }
 
     public class Parameters : AstNode {
@@ -207,10 +415,11 @@ class AstNode {
     }
 
     public class FuncDef : AstNode {
-        readonly string name;
+        public readonly string name;
         readonly string return_type;
         readonly AstNode[] statements;
-        readonly Parameters parameters;
+        // TODO: make this not public
+        public readonly Parameters parameters;
         readonly Dictionary<string, VarDef> local_vars = new Dictionary<string, VarDef>();
 
         public FuncDef(Location loc, List<AstNode> nodes) : base(loc) {
@@ -218,9 +427,6 @@ class AstNode {
             name = ((Value)nodes[1]).token.value;
 
             parameters = (Parameters)nodes[2];
-            if (!Umi.function_args.TryAdd(name, parameters.types)) {
-                Umi.Crash($"Function `{name}` already defined", loc);
-            }
             for (int i = 0; i < parameters.names.Length; i++) {
                 string param_type = parameters.types[i];
                 string param_name = parameters.names[i];
@@ -230,17 +436,14 @@ class AstNode {
                 };
             }
 
-            int statements_amount = nodes.Count - 5;
-            statements = new AstNode[statements_amount];
-            for (int j = 4; j < nodes.Count - 1; j++) {
-                if (nodes[j] is VarDef) {
-                    VarDef variable = (VarDef)nodes[j];
+            statements = ((Multiple<AstNode>)nodes[4]).ToArray();
+            for (int i = 0; i < statements.Length; i++) {
+                if (statements[i] is VarDef) {
+                    VarDef variable = (VarDef)statements[i];
                     if (!local_vars.TryAdd(variable.name, variable)) {
                         Umi.Crash($"Local variable `{variable.name}` already defined", variable.location);
                     };
-                    statements[j-4] = variable.assignment;
-                } else {
-                    statements[j-4] = nodes[j];
+                    statements[i] = variable.assignment;
                 }
             }
         }
@@ -274,224 +477,48 @@ class AstNode {
         }
     }
 
-}
+    public class Program : AstNode {
+        FuncDef[] func_defs;
 
-// TODO: completely rework parser again so patterns can reference themselves
-class Pattern {
+        public Program(FuncDef[] func_defs) : base(func_defs[0].location) => this.func_defs = func_defs;
 
-    protected Pattern[] tails;
-    readonly Token.Type token_type;
+        public override void GenIl(Dictionary<string, VarDef> _) {
+            File.Delete("output.il");
+            Output.WriteLine(".assembly UmiProgram {}\n");
+            
+            // TODO: use something like an alias instead
+            Umi.function_args["print"] = new string[] {"string"};
+            Output.WriteLine(".method static void print(string)");
+            Output.WriteLine("{");
+            Output.Indent();
+            Output.WriteLine("ldarg 0");
+            Output.WriteLine("call void [mscorlib]System.Console::WriteLine(string)");
+            Output.WriteLine("ret");
+            Output.Unindent();
+            Output.WriteLine("}\n");
 
-    protected Pattern[] subpattern_heads;
-    readonly string name;
+            // TODO: make an overload of print
+            Umi.function_args["printn"] = new string[] {"int32"};
+            Output.WriteLine(".method static void printn(int32)");
+            Output.WriteLine("{");
+            Output.Indent();
+            Output.WriteLine("ldarg 0");
+            Output.WriteLine("call void [mscorlib]System.Console::WriteLine(int32)");
+            Output.WriteLine("ret");
+            Output.Unindent();
+            Output.WriteLine("}\n");
 
-    Pattern(Pattern[] tails, string name) {
-        this.tails = tails;
-        this.name = name;
-    }
-
-    public Pattern(Token.Type token_type, Pattern[] tails = null) {
-        this.token_type = token_type;
-        this.tails = tails;
-    }
-
-    public static implicit operator string(Pattern p) => p.name == null ? p.token_type.ToString() : p.name;
-
-    protected virtual AstNode GenAst(List<Token> tokens, ref int i) {
-        if (tokens[i].type == token_type) return new AstNode.Value(tokens[i++]);
-        return null;
-    } 
-
-    public List<AstNode> ParseTokens(List<Token> tokens, ref int i) {
-        if (subpattern_heads == null) Umi.Crash("ParseTokens being called on primitive", tokens[i].location);
-        
-        List<AstNode> nodes = new List<AstNode>();
-        Pattern[] tails = subpattern_heads;
-
-        while (tails != null && i < tokens.Count) {
-            bool matched = false;
-            foreach (var child_node in tails) {
-                var ast_node = child_node.GenAst(tokens, ref i);
-                if (ast_node != null) {
-                    nodes.Add(ast_node);
-                    tails = child_node.tails;
-                    matched = true;
-                    break;
+            foreach(FuncDef func_def in func_defs) {
+                // TODO: move this somewhere else
+                // It can't be in the constructor of funcdef because backtracking breaks
+                if (!Umi.function_args.TryAdd(func_def.name, func_def.parameters.types)) {
+                    Umi.Crash($"Function `{func_def.name}` already defined", func_def.location);
                 }
+                func_def.GenIl(null);
             }
-            if (!matched) return null;
-        }
-        
-        return nodes;
-    }
-
-    public abstract class NotToken : Pattern {
-        // TODO: Make a better name lol
-        protected abstract AstNode CreateAstNode(Location loc, List<AstNode> nodes);
-        protected NotToken(Pattern[] tails, string name) : base(tails, name) {}
-
-        protected override AstNode GenAst(List<Token> tokens, ref int i) {
-            Location loc = tokens[i].location;
-            int old_i = i;
-            List<AstNode> nodes = ParseTokens(tokens, ref i);
-            if (nodes == null) {
-                i = old_i;
-                return null;
-            }
-            return CreateAstNode(loc, nodes);
         }
     }
 
-    // This is basically literals or variables
-    // Maybe I should think of a better name
-    class Value : NotToken {
-        public Value(Pattern[] tails) : base(tails, "VALUE") {
-            var str = new Pattern(Token.Type.STRING);
-            var integer = new Pattern(Token.Type.INTEGER);
-            var identifier = new Pattern(Token.Type.IDENTIFIER);
-            subpattern_heads = new Pattern[] {str, integer, identifier};
-        }
-
-        protected override AstNode CreateAstNode(Location _, List<AstNode> nodes) => nodes[0];
-    }
-
-    class Arguments : NotToken {
-        public Arguments(Pattern[] tails) : base(tails, "ARGUMENTS") {
-            var r_paran = new Pattern(Token.Type.RPARAN);
-            var additional_argument = new Value(new Pattern[] {r_paran, null});
-            var comma = new Pattern(Token.Type.COMMA, new Pattern[] {additional_argument});
-            additional_argument.tails[1] = comma;
-            var first_argument = new Value(new Pattern[] {r_paran, comma});
-            var l_paran = new Pattern(Token.Type.LPARAN, new Pattern[] {r_paran, first_argument});
-            subpattern_heads = new Pattern[] {l_paran};
-        }
-
-        protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
-            AstNode.Value[] args = new AstNode.Value[(nodes.Count - 1)/2];
-            // Ignore the brackets and commas
-            for (int j = 1; j < nodes.Count - 1; j += 2) {
-                args[(j-1)/2] = ((AstNode.Value)nodes[j]);
-            }
-            return new AstNode.Arguments(loc, args);
-        }
-    }
-
-    class FuncCall : NotToken {
-        public FuncCall(Pattern[] tails) : base(tails, "FUNC_CALL") {
-            var arguments = new Arguments(null);
-            var name = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {arguments});
-            subpattern_heads = new Pattern[] {name};
-        }
-
-        protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
-            string name = ((AstNode.Value)nodes[0]).token.value;
-            AstNode.Arguments args = (AstNode.Arguments)nodes[1];
-            return new AstNode.FuncCall(loc, name, args);
-        }
-    }
-
-    class VarAssign : NotToken {
-        public VarAssign(Pattern[] tails) : base(tails, "VAR_ASSIGN") {
-            var value = new Value(null);
-            var equal = new Pattern(Token.Type.EQUAL, new Pattern[] {value});
-            var name = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {equal});
-            subpattern_heads = new Pattern[] {name};
-        }
-
-        protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
-            string name = ((AstNode.Value)nodes[0]).token.value;
-            AstNode.Value value = (AstNode.Value)nodes[2];
-            return new AstNode.VarAssign(loc, name, value);
-        }
-    }
-
-    class VarDef : NotToken {
-        public VarDef(Pattern[] tails) : base(tails, "VAR_DEF") {
-            var assign = new VarAssign(null);
-            var type = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {assign});
-            subpattern_heads = new Pattern[] {type};
-        }
-
-        protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
-            string type = ((AstNode.Value)nodes[0]).token.value;
-            AstNode.VarAssign assignment = (AstNode.VarAssign)nodes[1];
-            return new AstNode.VarDef(loc, type, assignment);
-        }
-    }
-
-    // Only in function body
-    class Statement : NotToken {
-        public Statement(Pattern[] tails) : base(tails, "STATEMENT") {
-            var semicolon = new Pattern(Token.Type.STATEMENT_END);
-            Pattern[] semicolon_array = new Pattern[] {semicolon};
-            var func_call = new FuncCall(semicolon_array);
-            var var_assign = new VarAssign(semicolon_array);
-            var var_def = new VarDef(semicolon_array);
-            subpattern_heads = new Pattern[] {func_call, var_assign, var_def};
-        }
-
-        protected override AstNode CreateAstNode(Location _, List<AstNode> nodes) => nodes[0];
-    }
-
-    class Parameters : NotToken {
-        public Parameters(Pattern[] tails) : base(tails, "PARAMETERS") {
-            var r_paran = new Pattern(Token.Type.RPARAN);
-
-            var addit_param_var = new Pattern(Token.Type.IDENTIFIER);
-            var addit_param_type = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {addit_param_var});
-            var comma = new Pattern(Token.Type.COMMA, new Pattern[] {addit_param_type});
-            addit_param_var.tails = new Pattern[] {r_paran, comma};
-
-            var first_param_var = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {r_paran, comma});
-            var first_param_type = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {first_param_var});
-            var l_paran = new Pattern(Token.Type.LPARAN, new Pattern[] {r_paran, first_param_type});
-            subpattern_heads = new Pattern[] {l_paran};
-        }
-
-        protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
-            // TODO: check this maths and other arrays
-            string[] types = new string[(nodes.Count - 1)/3];
-            string[] names = new string[(nodes.Count - 1)/3];
-            // Ignore the brackets and commas
-            for (int j = 1; j < nodes.Count - 1; j += 3) {
-                types[(j-1)/3] = ((AstNode.Value)nodes[j]).token.value;
-                names[(j-1)/3] = ((AstNode.Value)nodes[j+1]).token.value;
-            }
-            return new AstNode.Parameters(loc, types, names);
-        }
-    }
-
-    class FuncDef : NotToken {
-        public FuncDef(Pattern[] tails) : base(tails, "FUNC_DEF") {
-            var end_block = new Pattern(Token.Type.RCURLY);
-            var statements = new Statement(new Pattern[] {end_block, null});
-            statements.tails[1] = statements;
-            var start_block = new Pattern(Token.Type.LCURLY, new Pattern[] {statements});
-            var parameters = new Parameters(new Pattern[] {start_block});
-            var func_def_name = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {parameters});
-            var type = new Pattern(Token.Type.IDENTIFIER, new Pattern[] {func_def_name});
-            subpattern_heads = new Pattern[] {type};
-        }
-
-        protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
-            return new AstNode.FuncDef(loc, nodes);
-        }
-    }
-
-    // Workaround to allow multiple functions
-    public class Program : NotToken {
-        public Program() : base(null, "PROGRAM") {
-            var func_def = new FuncDef(new Pattern[1]);
-            func_def.tails[0] = func_def;
-            subpattern_heads = new Pattern[] {func_def};
-        }
-
-        // This shouldn't be called
-        protected override AstNode CreateAstNode(Location loc, List<AstNode> nodes) {
-            throw new NotImplementedException();
-        }
-    }
-    
 }
 
 class Output {
@@ -599,35 +626,6 @@ class Umi {
         return tokens;
     }
 
-    static void GenIlForProgram(List<AstNode> ast) {
-        File.Delete("output.il");
-        Output.WriteLine(".assembly UmiProgram {}\n");
-        
-        // TODO: use something like an alias instead
-        Umi.function_args["print"] = new string[] {"string"};
-        Output.WriteLine(".method static void print(string)");
-        Output.WriteLine("{");
-        Output.Indent();
-        Output.WriteLine("ldarg 0");
-        Output.WriteLine("call void [mscorlib]System.Console::WriteLine(string)");
-        Output.WriteLine("ret");
-        Output.Unindent();
-        Output.WriteLine("}\n");
-
-        // TODO: make an overload of print
-        Umi.function_args["printn"] = new string[] {"int32"};
-        Output.WriteLine(".method static void printn(int32)");
-        Output.WriteLine("{");
-        Output.Indent();
-        Output.WriteLine("ldarg 0");
-        Output.WriteLine("call void [mscorlib]System.Console::WriteLine(int32)");
-        Output.WriteLine("ret");
-        Output.Unindent();
-        Output.WriteLine("}\n");
-
-        foreach (var node in ast) node.GenIl(null);
-    }
-
     static void Main(string[] args) {
         if (args.Length < 1) {
             Console.WriteLine("You must specify the path to the file");
@@ -635,11 +633,11 @@ class Umi {
         }
 
         List<Token> tokens = Lex(File.ReadAllText(args[0]));
-        int i = 0;
-        List<AstNode> ast = new Pattern.Program().ParseTokens(tokens, ref i);
+        AstNode.Program ast = Grammar.ParseTokens(tokens);
+        ast.GenIl(null);
+
         // TODO: better error message (currently this isn't even correct: it points to the start of the function)
-        if (ast == null) Crash($"Unexpected token: {tokens[i].type}", tokens[i].location);
-        GenIlForProgram(ast);
+        // if (ast == null) Crash($"Unexpected token: {tokens[i].type}", tokens[i].location);
     }
 
 }
