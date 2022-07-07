@@ -571,6 +571,22 @@ class Umi {
         Environment.Exit(1);
     }
 
+    delegate bool ContinueConsuming(char next);
+
+    static string ConsumeWhile(string file, ref int i, Location position, ContinueConsuming continueConsuming) {
+        string content = "";
+        while (continueConsuming(file[i + 1])) {
+            i++;
+            position.Increase(file[i]);
+            content += file[i];
+        }
+        return content;
+    }
+
+    static string ConsumeWhile(char start, string f, ref int i, Location p, ContinueConsuming cc) {
+        return start.ToString() + ConsumeWhile(f, ref i, p, cc);
+    }
+
     static List<Token> Lex(string file) {
         Location position = new Location(1, 1);
         List<Token> tokens = new List<Token>();
@@ -584,22 +600,10 @@ class Umi {
             if (Char.IsWhiteSpace(c)) {
             } else if (Char.IsLetter(c) || c  == '_') {
                 type = Token.Type.IDENTIFIER;
-                string content = c.ToString();
-                while (Char.IsLetterOrDigit(file[i + 1]) || file[i + 1] == '_') {
-                    i++;
-                    position.Increase(file[i]);
-                    content += file[i];
-                }
-                value = content;
+                value = ConsumeWhile(c, file, ref i, position, ch => Char.IsLetterOrDigit(ch) || ch == '_');
             } else if (Char.IsDigit(c)) {
                 type = Token.Type.INTEGER;
-                string content = c.ToString();
-                while (Char.IsDigit(file[i + 1])) {
-                    i++;
-                    position.Increase(file[i]);
-                    content += file[i];
-                }
-                value = content;
+                value = ConsumeWhile(c, file, ref i, position, ch => Char.IsDigit(ch));
             } else switch (c) {
                 case '(':
                     type = Token.Type.LPARAN;
@@ -624,15 +628,9 @@ class Umi {
                     break;
                 case '"':
                     type = Token.Type.STRING;
-                    string content = "";
-                    while (file[i + 1] != '"') {
-                        i++;
-                        position.Increase(file[i]);
-                        content += file[i];
-                    }
+                    value = ConsumeWhile(file, ref i, position, ch => ch != '"');
                     i++;
                     position.Increase(file[i]);
-                    value = content;
                     break;
                 case '/':
                     if (file[i + 1] != '/') Crash("Division not implemented", loc);
@@ -646,9 +644,7 @@ class Umi {
                     break;
             }
 
-            if (type != null) {
-                tokens.Add(new Token(type.Value, loc, value));
-            }
+            if (type != null) tokens.Add(new Token(type.Value, loc, value));
             position.Increase(c);
         }
 
