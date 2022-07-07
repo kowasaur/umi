@@ -24,9 +24,15 @@ class Location {
     
     public static implicit operator string(Location l) => $"{l.line}:{l.column}";
 
-    // Probably should consider column as well
-    public static bool operator >(Location a, Location b) => a.line > b.line;
-    public static bool operator <(Location a, Location b) => a.line < b.line;
+    public static bool operator >(Location a, Location b) {
+        if (a.line != b.line) return a.line > b.line;
+        return a.column > b.column;
+    }
+
+    public static bool operator <(Location a, Location b) {
+        if (a.line != b.line) return a.line < b.line;
+        return a.column < b.column;
+    }
 
 }
 
@@ -50,7 +56,7 @@ class Token {
         RPARAN,
         LCURLY,
         RCURLY,
-        STATEMENT_END,
+        SEMICOLON,
         COMMA,
         EQUAL
     }
@@ -64,13 +70,23 @@ abstract class Grammar {
     static List<Token> tokens;
     static int i = 0; // the cursor in tokens
 
+    // For basic error reporting
+    static Token furthest_got;
+    static Token.Type furthest_expected;
+
     class Tok : Grammar {
         readonly Token.Type token_type;
 
         public Tok(Token.Type token_type) => this.token_type = token_type;
 
         protected override AstNode GenAst() {
-            if (i == tokens.Count || tokens[i].type != token_type) return null;
+            if (i == tokens.Count || tokens[i].type != token_type) {
+                if (tokens[i].location > furthest_got.location) {
+                    furthest_got = tokens[i];
+                    furthest_expected = token_type;
+                }
+                return null;
+            }
             return new AstNode.Value(tokens[i++]);
         }
 
@@ -163,7 +179,7 @@ abstract class Grammar {
         var STRING = new Tok(Token.Type.STRING);
         var INTEGER = new Tok(Token.Type.INTEGER);
         var EQUAL = new Tok(Token.Type.EQUAL);
-        var SEMICOLON = new Tok(Token.Type.STATEMENT_END);
+        var SEMICOLON = new Tok(Token.Type.SEMICOLON);
 
         var VALUE = new Pattern("VALUE", new Grammar[] {STRING, INTEGER, IDENTIFIER});
 
@@ -225,8 +241,11 @@ abstract class Grammar {
 
     public static AstNode.Program ParseTokens(List<Token> toks) {
         tokens = toks;
+        furthest_got = toks[0];
         List<AstNode> ast = CreateProgramGrammar().Parse();
-        if (ast == null) return null;
+        if (ast == null) {
+            Umi.Crash($"Expected `{furthest_expected}` but found `{furthest_got.type}`", furthest_got.location);
+        }
         return new AstNode.Program(((AstNode.Multiple<AstNode.FuncDef>)ast[0]).ToArray());
     }
 
@@ -533,9 +552,8 @@ class Scope {
     public Name LookUp(string name, Location loc) {
         Name result;
         if (names.TryGetValue(name, out result)) return result;
-        if (parent != null) return parent.LookUp(name, loc);
-        Umi.Crash($"`{name}` is not defined in the current scope", loc);
-        return null; // Make the compiler happy
+        if (parent == null) Umi.Crash($"`{name}` is not defined in the current scope", loc);
+        return parent.LookUp(name, loc);
     } 
 
     public void Add(string name, Name value) {
@@ -596,7 +614,7 @@ class Umi {
                     type = Token.Type.RCURLY;
                     break;
                 case ';':
-                    type = Token.Type.STATEMENT_END;
+                    type = Token.Type.SEMICOLON;
                     break;
                 case '=':
                     type = Token.Type.EQUAL;
@@ -648,8 +666,6 @@ class Umi {
         Scope global_namespace = new Scope(null);
         ast.CreateNameInfo(global_namespace);
         ast.GenIl(global_namespace);
-
-        // TODO: better error messages
     }
 
 }
