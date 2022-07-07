@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Collections.Generic;
+using System.Linq;
 
 class Location {
 
@@ -239,14 +240,13 @@ abstract class AstNode {
         location = loc;
     }
 
-    public virtual Name CreateNameInfo() => throw new NotImplementedException();
-    public virtual void GenIl(Dictionary<string, VarDef> _) => throw new NotImplementedException();
+    public virtual void GenIl(Scope scope) => throw new NotImplementedException();
 
     public class Value : AstNode {
         public readonly Token token;
         public Value(Token token) : base(token.location) => this.token = token;
 
-        public override void GenIl(Dictionary<string, VarDef> local_vars) {
+        public override void GenIl(Scope scope) {
             switch (token.type) {
                 case Token.Type.STRING:
                     Output.WriteLine($"ldstr \"{token.value}\"");
@@ -255,15 +255,11 @@ abstract class AstNode {
                     Output.WriteLine($"ldc.i4 {token.value}");
                     break;
                 case Token.Type.IDENTIFIER:
-                    VarDef variable = local_vars[token.value];
-                    if (variable.is_param) {
-                        Output.WriteLine($"ldarg {variable.index}");
-                    } else {
-                        if (variable.location > location) {
-                            Umi.Crash($"Can not use variable `{token.value}` before it is defined", location);
-                        }
-                        Output.WriteLine($"ldloc {variable.index}");
+                    Name.Var variable = (Name.Var)scope.LookUp(token.value, location);
+                    if (variable.defined_at > location) {
+                        Umi.Crash($"Can not use variable `{token.value}` before it is defined", location);
                     }
+                    Output.WriteLine($"{(variable.is_param ? "ldarg" : "ldloc")} {variable.index}");
                     break;
                 default:
                     Umi.Crash("No Value IL generation for " + token.type, token.location);
@@ -271,17 +267,14 @@ abstract class AstNode {
             }
         }
 
-        string Type(Dictionary<string, VarDef> local_vars) {
+        string Type(Scope scope) {
             switch (token.type) {
                 case Token.Type.STRING:
                     return "string";
                 case Token.Type.INTEGER:
                     return "int32";
                 case Token.Type.IDENTIFIER:
-                    VarDef variable;
-                    if (!local_vars.TryGetValue(token.value, out variable)) {
-                        Umi.Crash($"Variable `{token.value}` is not defined", location);
-                    }
+                    Name.Var variable = (Name.Var)scope.LookUp(token.value, location);
                     return variable.type;
                 default:
                     Umi.Crash("No Value type for " + token.type, token.location);
@@ -289,8 +282,8 @@ abstract class AstNode {
             }
         }
 
-        public void ExpectType(string expected, Dictionary<string, VarDef> local_vars) {
-            string actual_type = Type(local_vars);
+        public void ExpectType(string expected, Scope scope) {
+            string actual_type = Type(scope);
             if (actual_type != expected) {
                 Umi.Crash($"Incorrect type. Expected {expected} but found {actual_type}", location);
             }
@@ -335,15 +328,15 @@ abstract class AstNode {
             arguments = args.args;
         }
 
-        public override void GenIl(Dictionary<string, VarDef> local_vars) {
-            string[] expected_types = ((Name.FuncDef)Umi.global_namespace[name]).param_types;
+        public override void GenIl(Scope scope) {
+            string[] expected_types = ((Name.Func)scope.LookUp(name, location)).param_types;
             if (expected_types.Length != arguments.Length) {
                 Umi.Crash("Incorrect number of arguments", location);
             }
             for (int i = 0; i < arguments.Length; i++) {
                 Value arg = arguments[i];
-                arg.ExpectType(expected_types[i], local_vars);
-                arg.GenIl(local_vars);
+                arg.ExpectType(expected_types[i], scope);
+                arg.GenIl(scope);
             }
             string args = String.Join(", ", expected_types);
             // TODO: use real type
@@ -361,40 +354,27 @@ abstract class AstNode {
             this.value = value;
         }
 
-        public override void GenIl(Dictionary<string, VarDef> local_vars) {
-            VarDef variable;
-            if (!local_vars.TryGetValue(name, out variable)) {
-                Umi.Crash($"Variable `{name}` is not defined", location);
-            }
-            if (variable.location > location) {
+        public override void GenIl(Scope scope) {
+            Name.Var variable = (Name.Var)scope.LookUp(name, location);
+            if (variable.defined_at > location) {
                 Umi.Crash($"Can not assign to variable `{name}` before it is defined", location);
             }
-            value.ExpectType(variable.type, local_vars);
-            value.GenIl(local_vars);
+            value.ExpectType(variable.type, scope);
+            value.GenIl(scope);
             Output.WriteLine($"stloc {variable.index}");
         }
     }
     
-    // Probably shouldn't be an AstNode
     public class VarDef : AstNode {
-        public readonly VarAssign assignment;
-        public readonly string name;
         public readonly string type;
-        public readonly bool is_param = false; // local variable or parameter
-        public int index; // in the function
+        public readonly VarAssign assignment;
 
         public VarDef(Location loc, string type, VarAssign assignment) : base(loc) {
-            this.name = assignment.name;
             this.type = type;
             this.assignment = assignment;
         }
 
-        public VarDef(Location loc, string type, string name, int index) : base(loc) {
-            this.name = name;
-            this.type = type;
-            this.index = index;
-            this.is_param = true;
-        }
+        public override void GenIl(Scope scope) => assignment.GenIl(scope);
     }
 
     public class FuncDef : AstNode {
@@ -402,58 +382,58 @@ abstract class AstNode {
         readonly string return_type;
         readonly AstNode[] statements;
         readonly Param[] parameters;
-        readonly Dictionary<string, VarDef> local_vars = new Dictionary<string, VarDef>();
 
         public FuncDef(Location loc, List<AstNode> nodes) : base(loc) {
             return_type = ((Value)nodes[0]).token.value;
             name = ((Value)nodes[1]).token.value;
-
             parameters = ((Parameters)nodes[2]).parameters;
+            statements = ((Multiple<AstNode>)nodes[4]).ToArray();
+        }
+
+        public void CreateNameInfo(Scope scope) {
+            var func = new Name.Func(location, Array.ConvertAll(parameters, p => p.type), scope);
+            scope.Add(name, func);
+            
             for (int i = 0; i < parameters.Length; i++) {
-                string param_type = parameters[i].type;
-                string param_name = parameters[i].name;
-                VarDef variable = new VarDef(parameters[i].location, param_type, param_name, i);
-                if (!local_vars.TryAdd(param_name, variable)) {
-                    Umi.Crash($"Parameter with name `{param_name}` already exists", parameters[i].location);
-                };
+                Param p = parameters[i];
+                var par = new Name.Var(p.type, p.name, true, i, p.location);
+                func.local_variables.Add(p.name, par);
             }
 
-            statements = ((Multiple<AstNode>)nodes[4]).ToArray();
-            for (int i = 0; i < statements.Length; i++) {
-                if (statements[i] is VarDef) {
-                    VarDef variable = (VarDef)statements[i];
-                    if (!local_vars.TryAdd(variable.name, variable)) {
-                        Umi.Crash($"Local variable `{variable.name}` already defined", variable.location);
-                    };
-                    statements[i] = variable.assignment;
-                }
+            var vardefs = Array.FindAll(statements, s => s is AstNode.VarDef);
+            for (int i = 0; i < vardefs.Length; i++) {
+                var vardef = (AstNode.VarDef)vardefs[i];
+                var name = vardef.assignment.name;
+                var variable = new Name.Var(vardef.type, name, false, i, vardef.location);
+                func.local_variables.Add(name, variable);
             }
         }
 
-        public override Name CreateNameInfo() => new Name.FuncDef(Array.ConvertAll(parameters, p => p.type));
-
-        public override void GenIl(Dictionary<string, VarDef> _) {
+        public override void GenIl(Scope scope) {
             string param = String.Join(", ", Array.ConvertAll(parameters, p => p.type));
             Output.WriteLine($".method static {return_type} {name}({param})");
             Output.WriteLine("{");
             Output.Indent();
             if (name == "main") Output.WriteLine(".entrypoint");
             
-            Output.WriteLine(".locals init (");
-            Output.Indent();
-            int local_count = 0;
-            foreach (VarDef variable in local_vars.Values) if (!variable.is_param) {
-                variable.index = local_count++;
-                if (local_count == local_vars.Count - parameters.Length) {
-                    Output.WriteLine($"{variable.type} {variable.name}");
-                } else {
+            Name.Func func = (Name.Func)scope.LookUp(name, location);
+            var all_scope_vars = func.local_variables.names.Values.ToArray();
+            var local_vars = Array.FindAll<Name>(all_scope_vars, v => !((Name.Var)v).is_param);
+            if (local_vars.Length > 0) {
+                Array.Sort(local_vars, (x, y) => ((Name.Var)x).index.CompareTo(((Name.Var)y).index));
+                Output.WriteLine(".locals init (");
+                Output.Indent();
+                for (int i = 0; i < local_vars.Length - 1; i++) {
+                    Name.Var variable = (Name.Var)local_vars[i];
                     Output.WriteLine($"{variable.type} {variable.name},");
-                }   
+                }
+                Name.Var last_local = (Name.Var)local_vars[local_vars.Length - 1];
+                Output.WriteLine($"{last_local.type} {last_local.name}");
+                Output.Unindent();
+                Output.WriteLine(")");
             }
-            Output.Unindent();
-            Output.WriteLine(")");
             
-            foreach (var statement in statements) statement.GenIl(local_vars);
+            foreach (var statement in statements) statement.GenIl(func.local_variables);
 
             Output.WriteLine("ret");
             Output.Unindent();
@@ -466,21 +446,16 @@ abstract class AstNode {
 
         public Program(FuncDef[] func_defs) : base(func_defs[0].location) => this.func_defs = func_defs;
 
-        public override Name CreateNameInfo() {
-            foreach(FuncDef func_def in func_defs) {
-                if (!Umi.global_namespace.TryAdd(func_def.name, func_def.CreateNameInfo())) {
-                    Umi.Crash($"Function `{func_def.name}` already defined", func_def.location);
-                }
-            }
-            return null;
+        public void CreateNameInfo(Scope scope) {
+            foreach(FuncDef func_def in func_defs) func_def.CreateNameInfo(scope);
         }
 
-        public override void GenIl(Dictionary<string, VarDef> _) {
+        public override void GenIl(Scope scope) {
             File.Delete("output.il");
             Output.WriteLine(".assembly UmiProgram {}\n");
             
             // TODO: use something like an alias instead
-            Umi.global_namespace["print"] = new Name.FuncDef(new string[] {"string"});
+            scope.Add("print", new Name.Func(location, new string[] {"string"}, scope));
             Output.WriteLine(".method static void print(string)");
             Output.WriteLine("{");
             Output.Indent();
@@ -491,7 +466,7 @@ abstract class AstNode {
             Output.WriteLine("}\n");
 
             // TODO: make an overload of print
-            Umi.global_namespace["printn"] = new Name.FuncDef(new string[] {"int32"});
+            scope.Add("printn", new Name.Func(location, new string[] {"int32"}, scope));
             Output.WriteLine(".method static void printn(int32)");
             Output.WriteLine("{");
             Output.Indent();
@@ -501,7 +476,7 @@ abstract class AstNode {
             Output.Unindent();
             Output.WriteLine("}\n");
 
-            foreach(FuncDef func_def in func_defs) func_def.GenIl(null);
+            foreach(FuncDef func_def in func_defs) func_def.GenIl(scope);
         }
     }
 
@@ -519,17 +494,60 @@ class Output {
 }
 
 abstract class Name {
-    public class FuncDef : Name {
+
+    public readonly Location defined_at;
+
+    Name(Location defined_at) => this.defined_at = defined_at;
+
+    public class Func : Name {
         // TODO: allow function overloading
-        public string[] param_types;
-        public FuncDef(string[] arg_types) => this.param_types = arg_types;
+        public readonly string[] param_types;
+        public readonly Scope local_variables;
+        public Func(Location defined_at, string[] arg_types, Scope parent) : base(defined_at) {
+            this.param_types = arg_types;
+            local_variables = new Scope(parent);
+        }
     }
+
+    public class Var : Name {
+        public readonly string type;
+        public readonly string name;
+        public readonly bool is_param; // local variable or parameter
+        public readonly int index;
+        public Var(string type, string name, bool is_param, int index, Location defined_at) : base(defined_at) {
+            this.type = type;
+            this.name = name;
+            this.is_param = is_param;
+            this.index = index;
+        }
+    }
+
+}
+
+class Scope {
+    public readonly Dictionary<string, Name> names = new Dictionary<string, Name>();
+    public readonly Scope parent;
+
+    public Scope(Scope parent) => this.parent = parent;
+
+    public Name LookUp(string name, Location loc) {
+        Name result;
+        if (names.TryGetValue(name, out result)) return result;
+        if (parent != null) return parent.LookUp(name, loc);
+        Umi.Crash($"`{name}` is not defined in the current scope", loc);
+        return null; // Make the compiler happy
+    } 
+
+    public void Add(string name, Name value) {
+        if (!names.TryAdd(name, value)) {
+            Umi.Crash($"`{name}` already defined at {names[name].defined_at}", value.defined_at);
+        }
+    }
+
 }
 
 class Umi {
     
-    public static readonly Dictionary<string, Name> global_namespace = new Dictionary<string, Name>();
-
     public static void Crash(string message, Location loc) {
         Console.WriteLine(loc + ": " + message);
         Environment.Exit(1);
@@ -627,8 +645,9 @@ class Umi {
 
         List<Token> tokens = Lex(File.ReadAllText(args[0]));
         AstNode.Program ast = Grammar.ParseTokens(tokens);
-        ast.CreateNameInfo();
-        ast.GenIl(null);
+        Scope global_namespace = new Scope(null);
+        ast.CreateNameInfo(global_namespace);
+        ast.GenIl(global_namespace);
 
         // TODO: better error messages
     }
