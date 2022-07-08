@@ -1,3 +1,6 @@
+// This should be in the standard library that is included by default
+il void print(string) "call void [mscorlib]System.Console::WriteLine(string)";
+
 void main() {
     print("Hello, World!");
 }

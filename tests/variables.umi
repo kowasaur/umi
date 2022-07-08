@@ -1,3 +1,7 @@
+il void print(string) "call void [mscorlib]System.Console::WriteLine(string)";
+// TODO: make this an overload of print
+il void printn(int32) "call void [mscorlib]System.Console::WriteLine(int32)";
+
 void main() {
     string message = "hello!";
     print(message);

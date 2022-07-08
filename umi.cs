@@ -22,7 +22,7 @@ class Location {
 
     public Location Copy() => new Location(line, column);
     
-    public static implicit operator string(Location l) => $"{l.line}:{l.column}";
+    public override string ToString() => $"{line}:{column}";
 
     public static bool operator >(Location a, Location b) {
         if (a.line != b.line) return a.line > b.line;
@@ -58,7 +58,8 @@ class Token {
         RCURLY,
         SEMICOLON,
         COMMA,
-        EQUAL
+        EQUAL,
+        IL
     }
 
 }
@@ -180,6 +181,7 @@ abstract class Grammar {
         var INTEGER = new Tok(Token.Type.INTEGER);
         var EQUAL = new Tok(Token.Type.EQUAL);
         var SEMICOLON = new Tok(Token.Type.SEMICOLON);
+        var IL = new Tok(Token.Type.IL);
 
         var VALUE = new Pattern("VALUE", new Grammar[] {STRING, INTEGER, IDENTIFIER});
 
@@ -208,13 +210,13 @@ abstract class Grammar {
             return new AstNode.VarDef(loc, type, (AstNode.VarAssign)nodes[1]);
         });
 
-        var STATEMENT = new Pattern("STATEMENT", new Grammar[][] {
+        var LOCAL_STATEMENT = new Pattern("LOCAL_STATEMENT", new Grammar[][] {
             new Grammar[] {FUNC_CALL, SEMICOLON},
             new Grammar[] {VAR_DEF, SEMICOLON},
             new Grammar[] {VAR_ASSIGN, SEMICOLON}
         }, (_, nodes) => nodes[0]);
 
-        var STATEMENTS = new Multiple<AstNode>("STATEMENTS", new Grammar[] {STATEMENT, null}); 
+        var LOCAL_STATEMENTS = new Multiple<AstNode>("LOCAL_STATEMENTS", new Grammar[] {LOCAL_STATEMENT, null});
 
         var PARAM = new Pattern("PARAM", new Grammar[] {IDENTIFIER, IDENTIFIER}, 
             (loc, nodes) => new AstNode.Param(loc, nodes)
@@ -230,12 +232,26 @@ abstract class Grammar {
         });
 
         var FUNC_DEF = new Pattern("FUNC_DEF", 
-            new Grammar[] {IDENTIFIER, IDENTIFIER, PARAMETERS, LCURLY, STATEMENTS, RCURLY}, 
+            new Grammar[] {IDENTIFIER, IDENTIFIER, PARAMETERS, LCURLY, LOCAL_STATEMENTS, RCURLY}, 
             (loc, nodes) => new AstNode.FuncDef(loc, nodes)
         );
 
-        var FUNC_DEFS = new Multiple<AstNode.FuncDef>("FUNC_DEFS", new Grammar[] {FUNC_DEF, null});
-        var PROGRAM = new Pattern("PROGRAM", new Grammar[] {FUNC_DEFS}, null);
+        var TYPE_LIST = new Multiple<AstNode.Value>("TYPE_LIST", new Grammar[] {IDENTIFIER, COMMA, null});
+        // TODO: allow having no parameters
+        var IL_FUNC = new Pattern("IL_FUNC", 
+            new Grammar[] {IL, IDENTIFIER, IDENTIFIER, LPARAN, TYPE_LIST, RPARAN, STRING, SEMICOLON},
+            (loc, nodes) => {
+                string name = ((AstNode.Value)nodes[2]).token.value;
+                string il = ((AstNode.Value)nodes[6]).token.value;
+                var values = ((AstNode.Multiple<AstNode.Value>)nodes[4]).ToArray();
+                string[] param_types = Array.ConvertAll(values, v => v.token.value);
+                return new AstNode.IlFunc(loc, name, il, param_types);
+            }
+        );
+
+        var GLOBAL_STATEMENT = new Pattern("GLOBAL_STATEMENT", new Grammar[] {FUNC_DEF, IL_FUNC});
+        var GLOBAL_STATEMENTS = new Multiple<AstNode>("GLOBAL_STATEMENTS", new Grammar[] {GLOBAL_STATEMENT, null});
+        var PROGRAM = new Pattern("PROGRAM", new Grammar[] {GLOBAL_STATEMENTS}, null);
         return PROGRAM;
     }
 
@@ -243,10 +259,10 @@ abstract class Grammar {
         tokens = toks;
         furthest_got = toks[0];
         List<AstNode> ast = CreateProgramGrammar().Parse();
-        if (ast == null) {
+        if (ast == null || i != tokens.Count) {
             Umi.Crash($"Expected `{furthest_expected}` but found `{furthest_got.type}`", furthest_got.location);
         }
-        return new AstNode.Program(((AstNode.Multiple<AstNode.FuncDef>)ast[0]).ToArray());
+        return new AstNode.Program(((AstNode.Multiple<AstNode>)ast[0]).ToArray());
     }
 
 }
@@ -259,6 +275,7 @@ abstract class AstNode {
         location = loc;
     }
 
+    public virtual void CreateNameInfo(Scope scope) => throw new NotImplementedException();
     public virtual void GenIl(Scope scope) => throw new NotImplementedException();
 
     public class Value : AstNode {
@@ -348,7 +365,8 @@ abstract class AstNode {
         }
 
         public override void GenIl(Scope scope) {
-            string[] expected_types = ((Name.Func)scope.LookUp(name, location)).param_types;
+            Name.Func func = (Name.Func)scope.LookUp(name, location);
+            string[] expected_types = func.param_types;
             if (expected_types.Length != arguments.Length) {
                 Umi.Crash("Incorrect number of arguments", location);
             }
@@ -357,9 +375,7 @@ abstract class AstNode {
                 arg.ExpectType(expected_types[i], scope);
                 arg.GenIl(scope);
             }
-            string args = String.Join(", ", expected_types);
-            // TODO: use real type
-            Output.WriteLine($"call void {name} ({args})");
+            func.GenIl(name);
         }
     }
     
@@ -409,8 +425,8 @@ abstract class AstNode {
             statements = ((Multiple<AstNode>)nodes[4]).ToArray();
         }
 
-        public void CreateNameInfo(Scope scope) {
-            var func = new Name.Func(location, Array.ConvertAll(parameters, p => p.type), scope);
+        public override void CreateNameInfo(Scope scope) {
+            var func = new Name.OrdFunc(location, Array.ConvertAll(parameters, p => p.type), scope);
             scope.Add(name, func);
             
             for (int i = 0; i < parameters.Length; i++) {
@@ -435,18 +451,18 @@ abstract class AstNode {
             Output.Indent();
             if (name == "main") Output.WriteLine(".entrypoint");
             
-            Name.Func func = (Name.Func)scope.LookUp(name, location);
-            var all_scope_vars = func.local_variables.names.Values.ToArray();
-            var local_vars = Array.FindAll<Name>(all_scope_vars, v => !((Name.Var)v).is_param);
+            Name.OrdFunc func = (Name.OrdFunc)scope.LookUp(name, location);
+            var all_scope_vars = func.local_variables.names.Values.Cast<Name.Var>().ToArray();
+            var local_vars = Array.FindAll(all_scope_vars, v => !v.is_param);
             if (local_vars.Length > 0) {
-                Array.Sort(local_vars, (x, y) => ((Name.Var)x).index.CompareTo(((Name.Var)y).index));
+                Array.Sort(local_vars, (x, y) => x.index.CompareTo(y.index));
                 Output.WriteLine(".locals init (");
                 Output.Indent();
                 for (int i = 0; i < local_vars.Length - 1; i++) {
-                    Name.Var variable = (Name.Var)local_vars[i];
+                    Name.Var variable = local_vars[i];
                     Output.WriteLine($"{variable.type} {variable.name},");
                 }
-                Name.Var last_local = (Name.Var)local_vars[local_vars.Length - 1];
+                Name.Var last_local = local_vars[local_vars.Length - 1];
                 Output.WriteLine($"{last_local.type} {last_local.name}");
                 Output.Unindent();
                 Output.WriteLine(")");
@@ -460,42 +476,38 @@ abstract class AstNode {
         }
     }
 
+    public class IlFunc : AstNode {
+        // TODO: return type
+        readonly string name;
+        readonly string il;
+        readonly string[] param_types;
+
+        public IlFunc(Location loc, string name, string il, string[] param_types) : base(loc) {
+            this.name = name;
+            this.il = il;
+            this.param_types = param_types;
+        }
+
+        public override void CreateNameInfo(Scope scope) {
+            scope.Add(name, new Name.IlFunc(location, param_types, il));
+        }
+
+        public override void GenIl(Scope _) {}
+    }
+
     public class Program : AstNode {
-        FuncDef[] func_defs;
+        AstNode[] global_statements;
 
-        public Program(FuncDef[] func_defs) : base(func_defs[0].location) => this.func_defs = func_defs;
+        public Program(AstNode[] s) : base(s[0].location) => global_statements = s;
 
-        public void CreateNameInfo(Scope scope) {
-            foreach(FuncDef func_def in func_defs) func_def.CreateNameInfo(scope);
+        public override void CreateNameInfo(Scope scope) {
+            foreach(AstNode statement in global_statements) statement.CreateNameInfo(scope);
         }
 
         public override void GenIl(Scope scope) {
             File.Delete("output.il");
             Output.WriteLine(".assembly UmiProgram {}\n");
-            
-            // TODO: use something like an alias instead
-            scope.Add("print", new Name.Func(location, new string[] {"string"}, scope));
-            Output.WriteLine(".method static void print(string)");
-            Output.WriteLine("{");
-            Output.Indent();
-            Output.WriteLine("ldarg 0");
-            Output.WriteLine("call void [mscorlib]System.Console::WriteLine(string)");
-            Output.WriteLine("ret");
-            Output.Unindent();
-            Output.WriteLine("}\n");
-
-            // TODO: make an overload of print
-            scope.Add("printn", new Name.Func(location, new string[] {"int32"}, scope));
-            Output.WriteLine(".method static void printn(int32)");
-            Output.WriteLine("{");
-            Output.Indent();
-            Output.WriteLine("ldarg 0");
-            Output.WriteLine("call void [mscorlib]System.Console::WriteLine(int32)");
-            Output.WriteLine("ret");
-            Output.Unindent();
-            Output.WriteLine("}\n");
-
-            foreach(FuncDef func_def in func_defs) func_def.GenIl(scope);
+            foreach(AstNode statement in global_statements) statement.GenIl(scope);
         }
     }
 
@@ -518,14 +530,31 @@ abstract class Name {
 
     Name(Location defined_at) => this.defined_at = defined_at;
 
-    public class Func : Name {
+    public abstract class Func : Name {
         // TODO: allow function overloading
         public readonly string[] param_types;
+        public Func(Location defined_at, string[] param_types) : base(defined_at) {
+            this.param_types = param_types;
+        }
+        public abstract void GenIl(string name);
+    }
+
+    // Ordinary function (as opposed to IL function)
+    public class OrdFunc : Func {
         public readonly Scope local_variables;
-        public Func(Location defined_at, string[] arg_types, Scope parent) : base(defined_at) {
-            this.param_types = arg_types;
+        public OrdFunc(Location loc, string[] types, Scope parent) : base(loc, types) {
             local_variables = new Scope(parent);
         }
+        public override void GenIl(string name) {
+            // TODO: use real type
+            Output.WriteLine($"call void {name}({String.Join(", ", param_types)})");
+        }
+    }
+
+    public class IlFunc : Func {
+        string il;
+        public IlFunc(Location loc, string[] types, string il) : base(loc, types) => this.il = il;
+        public override void GenIl(string _) => Output.WriteLine(il);
     }
 
     public class Var : Name {
@@ -599,8 +628,13 @@ class Umi {
 
             if (Char.IsWhiteSpace(c)) {
             } else if (Char.IsLetter(c) || c  == '_') {
-                type = Token.Type.IDENTIFIER;
-                value = ConsumeWhile(c, file, ref i, position, ch => Char.IsLetterOrDigit(ch) || ch == '_');
+                string content = ConsumeWhile(c, file, ref i, position, ch => Char.IsLetterOrDigit(ch) || ch == '_');
+                if (content == "il") {
+                    type = Token.Type.IL;
+                } else {
+                    type = Token.Type.IDENTIFIER;
+                    value = content;
+                }
             } else if (Char.IsDigit(c)) {
                 type = Token.Type.INTEGER;
                 value = ConsumeWhile(c, file, ref i, position, ch => Char.IsDigit(ch));
