@@ -49,6 +49,7 @@ class Token {
     }
 
     public enum Type {
+        NOTHING, // for error reporting
         IDENTIFIER,
         STRING,
         INTEGER,
@@ -56,7 +57,7 @@ class Token {
         RPARAN,
         LCURLY,
         RCURLY,
-        SEMICOLON,
+        NEWLINE,
         COMMA,
         EQUAL,
         IL
@@ -81,14 +82,18 @@ abstract class Grammar {
         public Tok(Token.Type token_type) => this.token_type = token_type;
 
         protected override AstNode GenAst() {
-            if (i == tokens.Count || tokens[i].type != token_type) {
-                if (tokens[i].location > furthest_got.location) {
-                    furthest_got = tokens[i];
-                    furthest_expected = token_type;
-                }
-                return null;
+            if (i == tokens.Count) {
+                var loc = tokens[i - 1].location.Copy();
+                loc.Increase(' '); // to move it to the non existent token
+                furthest_got = new Token(Token.Type.NOTHING, loc, null);
+                furthest_expected = token_type;
+            } else if (tokens[i].type == token_type) {
+                return new AstNode.Value(tokens[i++]);
+            } else if (tokens[i].location > furthest_got.location) {
+                furthest_got = tokens[i];
+                furthest_expected = token_type;
             }
-            return new AstNode.Value(tokens[i++]);
+            return null;
         }
 
         public static implicit operator string(Tok t) => t.token_type.ToString();
@@ -170,6 +175,23 @@ abstract class Grammar {
         }
     }
 
+
+    // Mandatory newlines (at least 1)
+    static readonly Multiple<AstNode> MNL = new Multiple<AstNode>("MNL", new Grammar[] {
+        new Tok(Token.Type.NEWLINE), null
+    });
+    // Optional newlines
+    static readonly Pattern ONL = new Pattern("ONL", new Grammar[][] {
+        new Grammar[] {MNL}, new Grammar[0]
+    }, (loc, _) => new AstNode(loc));
+
+    static Pattern NewStatements(string space, Grammar[] possibilities) {
+        string name = space + "_STATEMENT";
+        var statement = new Pattern(name, possibilities);
+        var statements = new Multiple<AstNode>(name + "S", new Grammar[] {statement, MNL, null});
+        return new Pattern(name + "S+NL", new Grammar[] {ONL, statements, ONL}, (_, nodes) => nodes[1]);
+    }
+
     static Pattern CreateProgramGrammar() {
         var LPARAN = new Tok(Token.Type.LPARAN);
         var RPARAN = new Tok(Token.Type.RPARAN);
@@ -180,7 +202,6 @@ abstract class Grammar {
         var STRING = new Tok(Token.Type.STRING);
         var INTEGER = new Tok(Token.Type.INTEGER);
         var EQUAL = new Tok(Token.Type.EQUAL);
-        var SEMICOLON = new Tok(Token.Type.SEMICOLON);
         var IL = new Tok(Token.Type.IL);
 
         var VALUE = new Pattern("VALUE", new Grammar[] {STRING, INTEGER, IDENTIFIER});
@@ -210,13 +231,7 @@ abstract class Grammar {
             return new AstNode.VarDef(loc, type, (AstNode.VarAssign)nodes[1]);
         });
 
-        var LOCAL_STATEMENT = new Pattern("LOCAL_STATEMENT", new Grammar[][] {
-            new Grammar[] {FUNC_CALL, SEMICOLON},
-            new Grammar[] {VAR_DEF, SEMICOLON},
-            new Grammar[] {VAR_ASSIGN, SEMICOLON}
-        }, (_, nodes) => nodes[0]);
-
-        var LOCAL_STATEMENTS = new Multiple<AstNode>("LOCAL_STATEMENTS", new Grammar[] {LOCAL_STATEMENT, null});
+        var LOCAL_STATEMENTS = NewStatements("LOCAL", new Grammar[] {FUNC_CALL, VAR_DEF, VAR_ASSIGN});
 
         var PARAM = new Pattern("PARAM", new Grammar[] {IDENTIFIER, IDENTIFIER}, 
             (loc, nodes) => new AstNode.Param(loc, nodes)
@@ -239,7 +254,7 @@ abstract class Grammar {
         var TYPE_LIST = new Multiple<AstNode.Value>("TYPE_LIST", new Grammar[] {IDENTIFIER, COMMA, null});
         // TODO: allow having no parameters
         var IL_FUNC = new Pattern("IL_FUNC", 
-            new Grammar[] {IL, IDENTIFIER, IDENTIFIER, LPARAN, TYPE_LIST, RPARAN, STRING, SEMICOLON},
+            new Grammar[] {IL, IDENTIFIER, IDENTIFIER, LPARAN, TYPE_LIST, RPARAN, STRING},
             (loc, nodes) => {
                 string name = ((AstNode.Value)nodes[2]).token.value;
                 string il = ((AstNode.Value)nodes[6]).token.value;
@@ -249,8 +264,8 @@ abstract class Grammar {
             }
         );
 
-        var GLOBAL_STATEMENT = new Pattern("GLOBAL_STATEMENT", new Grammar[] {FUNC_DEF, IL_FUNC});
-        var GLOBAL_STATEMENTS = new Multiple<AstNode>("GLOBAL_STATEMENTS", new Grammar[] {GLOBAL_STATEMENT, null});
+        var GLOBAL_STATEMENTS = NewStatements("GLOBAL", new Grammar[] {FUNC_DEF, IL_FUNC});
+
         var PROGRAM = new Pattern("PROGRAM", new Grammar[] {GLOBAL_STATEMENTS}, null);
         return PROGRAM;
     }
@@ -267,7 +282,7 @@ abstract class Grammar {
 
 }
 
-abstract class AstNode {
+class AstNode {
 
     public readonly Location location;
 
@@ -627,6 +642,7 @@ class Umi {
             Location loc = position.Copy();
 
             if (Char.IsWhiteSpace(c)) {
+                if (c == '\n') type = Token.Type.NEWLINE;
             } else if (Char.IsLetter(c) || c  == '_') {
                 string content = ConsumeWhile(c, file, ref i, position, ch => Char.IsLetterOrDigit(ch) || ch == '_');
                 if (content == "il") {
@@ -650,9 +666,6 @@ class Umi {
                     break;
                 case '}':
                     type = Token.Type.RCURLY;
-                    break;
-                case ';':
-                    type = Token.Type.SEMICOLON;
                     break;
                 case '=':
                     type = Token.Type.EQUAL;

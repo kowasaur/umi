@@ -1,26 +1,26 @@
-il void print(string) "call void [mscorlib]System.Console::WriteLine(string)";
-il void write(string) "call void [mscorlib]System.Console::Write(string)";
-il void printn(int32) "call void [mscorlib]System.Console::WriteLine(int32)";
+il void print(string) "call void [mscorlib]System.Console::WriteLine(string)"
+il void write(string) "call void [mscorlib]System.Console::Write(string)"
+il void printn(int32) "call void [mscorlib]System.Console::WriteLine(int32)"
 
 void exclaim() {
-    print("poggers!");
+    print("poggers!")
 }
 
 void greet(string name, int32 age) {
-    string message = "Hello, ";
-    write(message);
-    write(name);
-    message = " aged ";
-    write(message);
-    printn(age);
-    exclaim();
+    string message = "Hello, "
+    write(message)
+    write(name)
+    message = " aged "
+    write(message)
+    printn(age)
+    exclaim()
 }
 
 void greetTim(int32 age) {
-    greet("Tim", age);
+    greet("Tim", age)
 }
 
 void main() {
-    greet("Joe", 3333);
-    greetTim(52);
+    greet("Joe", 3333)
+    greetTim(52)
 }

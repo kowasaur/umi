@@ -1,16 +1,16 @@
-il void print(string) "call void [mscorlib]System.Console::WriteLine(string)";
+il void print(string) "call void [mscorlib]System.Console::WriteLine(string)"
 // TODO: make this an overload of print
-il void printn(int32) "call void [mscorlib]System.Console::WriteLine(int32)";
+il void printn(int32) "call void [mscorlib]System.Console::WriteLine(int32)"
 
 void main() {
-    string message = "hello!";
-    print(message);
+    string message = "hello!"
+    print(message)
 
-    int32 number = 32;
-    int32 number_2 = number;
-    printn(number);
-    printn(number_2);
+    int32 number = 32
+    int32 number_2 = number
+    printn(number)
+    printn(number_2)
 
-    message = "goodbye :(";
-    print(message);
+    message = "goodbye :("
+    print(message)
 }
