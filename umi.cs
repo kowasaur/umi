@@ -200,6 +200,7 @@ abstract class Grammar {
         var RCURLY = new Tok(Token.Type.RCURLY);
         var COMMA = new Tok(Token.Type.COMMA);
         var IDENTIFIER = new Tok(Token.Type.IDENTIFIER);
+        var OPERATOR = new Tok(Token.Type.OPERATOR);
         var STRING = new Tok(Token.Type.STRING);
         var INTEGER = new Tok(Token.Type.INTEGER);
         var EQUAL = new Tok(Token.Type.EQUAL);
@@ -222,9 +223,37 @@ abstract class Grammar {
             return new AstNode.FuncCall(loc, name, (AstNode.Arguments)nodes[1]);
         });
 
-        var VAR_ASSIGN = new Pattern("VAR_ASSIGN", new Grammar[] {IDENTIFIER, EQUAL, VALUE}, (loc, nodes) => {
+        // A single term in an expresion
+        var TERM = new Pattern("TERM", new Grammar[] {STRING, INTEGER, IDENTIFIER});
+
+        // Expression Part
+        var EXP_PART = new Pattern("EXP_PART", new Grammar[][] {
+            new Grammar[] {TERM, OPERATOR, null},
+            new Grammar[] {TERM}
+        }, (_, nodes) => {
+            if (nodes.Count == 1) return new AstNode.Multiple<AstNode>(nodes[0]);
+            var values = (AstNode.Multiple<AstNode>)nodes[nodes.Count - 1];
+            values.list.Add(nodes[1]);
+            values.list.Add(nodes[0]);
+            return values;
+        });
+        EXP_PART.possible_patterns[0][2] = EXP_PART;
+
+        var EXPRESSION = new Pattern("EXPRESSION", new Grammar[] {EXP_PART}, (loc, nodes) => {
+            // TODO: remove cast
+            var parts = ((AstNode.Multiple<AstNode>)nodes[0]).ToArray().Cast<AstNode.Value>().ToArray();
+
+            if (parts.Length == 1) return parts[0];
+            // TODO: allow arbitrarily long expressions
+            if (parts.Length != 3) Umi.Crash("arbitrarily long expressions not implemented", loc);
+
+            var args = new AstNode.Arguments(loc, new AstNode.Value[] {parts[0], parts[2]});
+            return new AstNode.FuncCall(loc, parts[1].token.value, args);
+        });
+
+        var VAR_ASSIGN = new Pattern("VAR_ASSIGN", new Grammar[] {IDENTIFIER, EQUAL, EXPRESSION}, (loc, nodes) => {
             string name = ((AstNode.Value)nodes[0]).token.value;
-            return new AstNode.VarAssign(loc, name, (AstNode.Value)nodes[2]);
+            return new AstNode.VarAssign(loc, name, nodes[2]);
         });
 
         var VAR_DEF = new Pattern("VAR_DEF", new Grammar[] {IDENTIFIER, VAR_ASSIGN}, (loc, nodes) => {
@@ -247,21 +276,25 @@ abstract class Grammar {
             return new AstNode.Parameters(loc, param_list);
         });
 
+        // function definition identifier
+        var FUNC_IDEN = new Pattern("FUNC_IDEN", new Grammar[] {IDENTIFIER, OPERATOR});
+
         var FUNC_DEF = new Pattern("FUNC_DEF", 
-            new Grammar[] {IDENTIFIER, IDENTIFIER, PARAMETERS, LCURLY, LOCAL_STATEMENTS, RCURLY}, 
+            new Grammar[] {IDENTIFIER, FUNC_IDEN, PARAMETERS, LCURLY, LOCAL_STATEMENTS, RCURLY}, 
             (loc, nodes) => new AstNode.FuncDef(loc, nodes)
         );
 
         var TYPE_LIST = new Multiple<AstNode.Value>("TYPE_LIST", new Grammar[] {IDENTIFIER, COMMA, null});
         // TODO: allow having no parameters
         var IL_FUNC = new Pattern("IL_FUNC", 
-            new Grammar[] {IL, IDENTIFIER, IDENTIFIER, LPARAN, TYPE_LIST, RPARAN, STRING},
+            new Grammar[] {IL, IDENTIFIER, FUNC_IDEN, LPARAN, TYPE_LIST, RPARAN, STRING},
             (loc, nodes) => {
+                string type = ((AstNode.Value)nodes[1]).token.value;
                 string name = ((AstNode.Value)nodes[2]).token.value;
                 string il = ((AstNode.Value)nodes[6]).token.value;
                 var values = ((AstNode.Multiple<AstNode.Value>)nodes[4]).ToArray();
                 string[] param_types = Array.ConvertAll(values, v => v.token.value);
-                return new AstNode.IlFunc(loc, name, il, param_types);
+                return new AstNode.IlFunc(loc, name, il, param_types, type);
             }
         );
 
@@ -291,8 +324,16 @@ class AstNode {
         location = loc;
     }
 
+    protected virtual string Type(Scope scope) => throw new NotImplementedException();
     public virtual void CreateNameInfo(Scope scope) => throw new NotImplementedException();
     public virtual void GenIl(Scope scope) => throw new NotImplementedException();
+
+    public void ExpectType(string expected, Scope scope) {
+        string actual_type = Type(scope);
+        if (actual_type != expected) {
+            Umi.Crash($"Incorrect type. Expected {expected} but found {actual_type}", location);
+        }
+    }
 
     public class Value : AstNode {
         public readonly Token token;
@@ -319,7 +360,7 @@ class AstNode {
             }
         }
 
-        string Type(Scope scope) {
+        protected override string Type(Scope scope) {
             switch (token.type) {
                 case Token.Type.STRING:
                     return "string";
@@ -333,13 +374,7 @@ class AstNode {
                     return "unreachable";
             }
         }
-
-        public void ExpectType(string expected, Scope scope) {
-            string actual_type = Type(scope);
-            if (actual_type != expected) {
-                Umi.Crash($"Incorrect type. Expected {expected} but found {actual_type}", location);
-            }
-        }
+ 
     }
 
     public class Multiple<T> : AstNode where T : AstNode {
@@ -393,14 +428,19 @@ class AstNode {
             }
             func.GenIl(name);
         }
+
+        protected override string Type(Scope scope) {
+            Name.Func func = (Name.Func)scope.LookUp(name, location);
+            return func.return_type;
+        }
     }
     
     // TODO: prevent assigning to parameters or make it work properly
     public class VarAssign : AstNode {
         public readonly string name;
-        readonly Value value;
+        readonly AstNode value;
 
-        public VarAssign(Location loc, string name, Value value) : base(loc) {
+        public VarAssign(Location loc, string name, AstNode value) : base(loc) {
             this.name = name;
             this.value = value;
         }
@@ -442,7 +482,7 @@ class AstNode {
         }
 
         public override void CreateNameInfo(Scope scope) {
-            var func = new Name.OrdFunc(location, Array.ConvertAll(parameters, p => p.type), scope);
+            var func = new Name.OrdFunc(location, Array.ConvertAll(parameters, p => p.type), return_type, scope);
             scope.Add(name, func);
             
             for (int i = 0; i < parameters.Length; i++) {
@@ -476,10 +516,10 @@ class AstNode {
                 Output.Indent();
                 for (int i = 0; i < local_vars.Length - 1; i++) {
                     Name.Var variable = local_vars[i];
-                    Output.WriteLine($"{variable.type} {variable.name},");
+                    Output.WriteLine($"{variable.type} VAR_{variable.name},");
                 }
                 Name.Var last_local = local_vars[local_vars.Length - 1];
-                Output.WriteLine($"{last_local.type} {last_local.name}");
+                Output.WriteLine($"{last_local.type} VAR_{last_local.name}");
                 Output.Unindent();
                 Output.WriteLine(")");
             }
@@ -493,19 +533,20 @@ class AstNode {
     }
 
     public class IlFunc : AstNode {
-        // TODO: return type
         readonly string name;
         readonly string il;
         readonly string[] param_types;
+        readonly string return_type;
 
-        public IlFunc(Location loc, string name, string il, string[] param_types) : base(loc) {
+        public IlFunc(Location loc, string name, string il, string[] param_types, string rt) : base(loc) {
             this.name = name;
             this.il = il;
             this.param_types = param_types;
+            return_type = rt;
         }
 
         public override void CreateNameInfo(Scope scope) {
-            scope.Add(name, new Name.IlFunc(location, param_types, il));
+            scope.Add(name, new Name.IlFunc(location, param_types, return_type, il));
         }
 
         public override void GenIl(Scope _) {}
@@ -549,8 +590,10 @@ abstract class Name {
     public abstract class Func : Name {
         // TODO: allow function overloading
         public readonly string[] param_types;
-        public Func(Location defined_at, string[] param_types) : base(defined_at) {
+        public readonly string return_type;
+        public Func(Location defined_at, string[] param_types, string rt) : base(defined_at) {
             this.param_types = param_types;
+            return_type = rt;
         }
         public abstract void GenIl(string name);
     }
@@ -558,7 +601,7 @@ abstract class Name {
     // Ordinary function (as opposed to IL function)
     public class OrdFunc : Func {
         public readonly Scope local_variables;
-        public OrdFunc(Location loc, string[] types, Scope parent) : base(loc, types) {
+        public OrdFunc(Location loc, string[] types, string rt, Scope parent) : base(loc, types, rt) {
             local_variables = new Scope(parent);
         }
         public override void GenIl(string name) {
@@ -569,7 +612,7 @@ abstract class Name {
 
     public class IlFunc : Func {
         string il;
-        public IlFunc(Location loc, string[] types, string il) : base(loc, types) => this.il = il;
+        public IlFunc(Location loc, string[] types, string rt, string il) : base(loc, types, rt) => this.il = il;
         public override void GenIl(string _) => Output.WriteLine(il);
     }
 
