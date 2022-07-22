@@ -51,6 +51,7 @@ class Token {
     public enum Type {
         NOTHING, // for error reporting
         IDENTIFIER,
+        OPERATOR,
         STRING,
         INTEGER,
         LPARAN,
@@ -631,6 +632,8 @@ class Umi {
         return start.ToString() + ConsumeWhile(f, ref i, p, cc);
     }
 
+    static bool IsOperatorChar(char c) => "+-*/".Contains(c);
+    
     static List<Token> Lex(string file) {
         Location position = new Location(1, 1);
         List<Token> tokens = new List<Token>();
@@ -654,6 +657,9 @@ class Umi {
             } else if (Char.IsDigit(c)) {
                 type = Token.Type.INTEGER;
                 value = ConsumeWhile(c, file, ref i, position, ch => Char.IsDigit(ch));
+            } else if (IsOperatorChar(c)) {
+                type = Token.Type.OPERATOR;
+                value = ConsumeWhile(c, file, ref i, position, IsOperatorChar);
             } else switch (c) {
                 case '(':
                     type = Token.Type.LPARAN;
@@ -679,12 +685,8 @@ class Umi {
                     i++;
                     position.Increase(file[i]);
                     break;
-                case '/':
-                    if (file[i + 1] != '/') Crash("Division not implemented", loc);
-                    while (file[i + 1] != '\n') {
-                        i++;
-                        position.Increase(file[i]);
-                    }
+                case '#':
+                    ConsumeWhile(file, ref i, position, ch => ch != '\n');
                     break;
                 default:
                     Umi.Crash($"Unknown character: {c}", loc);
