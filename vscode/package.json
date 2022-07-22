@@ -1,0 +1,34 @@
+{
+    "name": "umi",
+    "displayName": "Umi",
+    "description": "Syntax highlighting for Umi",
+    "version": "0.0.1",
+    "engines": {
+        "vscode": "^1.69.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "contributes": {
+        "languages": [
+            {
+                "id": "umi",
+                "aliases": [
+                    "Umi",
+                    "umi"
+                ],
+                "extensions": [
+                    ".umi"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "umi",
+                "scopeName": "source.umi",
+                "path": "./umi.tmLanguage.json"
+            }
+        ]
+    }
+}
