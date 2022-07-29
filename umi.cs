@@ -115,7 +115,7 @@ class Lexer {
                 }
             } else if (Char.IsDigit(c)) {
                 type = Token.Type.INTEGER;
-                value = ConsumeWhile(c, ch => Char.IsDigit(ch));
+                value = ConsumeWhile(c, Char.IsDigit);
             } else if (IsOperatorChar(c)) {
                 type = Token.Type.OPERATOR;
                 value = ConsumeWhile(c, IsOperatorChar);
@@ -211,16 +211,6 @@ abstract class Grammar {
             this.CreateAstNode = CreateAstNode;
         }
 
-        // When the pattern is only 1 thing long but there's different possibilites
-        public Pattern(string name, Grammar[] options) {
-            this.name = name;
-            possible_patterns = new Grammar[options.Length][];
-            for (int i = 0; i < options.Length; i++) {
-                possible_patterns[i] = new Grammar[] {options[i]}; 
-            }
-            this.CreateAstNode = (_, nodes) => nodes[0];
-        }
-
         public static implicit operator string(Pattern p) => p.name;
 
         protected override AstNode GenAst() {
@@ -254,10 +244,19 @@ abstract class Grammar {
         }
     }
 
-    class Multiple<T> : Pattern where T : AstNode {
-        // grammar must end with null
-        public Multiple(string name, Grammar[] grammar) : base(name, 
-            new Grammar[][] {grammar, new Grammar[] {grammar[0]}},
+    // When the pattern is only 1 thing long but there's different possibilites
+    static Pattern OneOf(string name, Grammar[] options) {
+        var pat = new Pattern(name, new Grammar[options.Length][], (_, nodes) => nodes[0]);
+        for (int i = 0; i < options.Length; i++) {
+            pat.possible_patterns[i] = new Grammar[] {options[i]}; 
+        }
+        return pat;
+    }
+
+    static Pattern Multiple<T>(string name, Grammar[] grammar) where T : AstNode {
+        var g = new Grammar[grammar.Length + 1]; // last is null
+        grammar.CopyTo(g, 0);
+        var pat = new Pattern(name, new Grammar[][] {g, new Grammar[] {g[0]}},
             (_, nodes) => {
                 var new_value = (T)nodes[0];
                 if (nodes.Count == 1) return new AstNode.Multiple<T>(new_value);
@@ -265,15 +264,14 @@ abstract class Grammar {
                 values.list.Add(new_value);
                 return values;
             }
-        ) {
-            possible_patterns[0][grammar.Length - 1] = this;
-        }
+        );
+        g[g.Length - 1] = pat;
+        return pat;
     }
 
-
     // Mandatory newlines (at least 1)
-    static readonly Multiple<AstNode> MNL = new Multiple<AstNode>("MNL", new Grammar[] {
-        new Tok(Token.Type.NEWLINE), null
+    static readonly Pattern MNL = Multiple<AstNode>("MNL", new Grammar[] {
+        new Tok(Token.Type.NEWLINE)
     });
     // Optional newlines
     static readonly Pattern ONL = new Pattern("ONL", new Grammar[][] {
@@ -282,8 +280,8 @@ abstract class Grammar {
 
     static Pattern NewStatements(string space, Grammar[] possibilities) {
         string name = space + "_STATEMENT";
-        var statement = new Pattern(name, possibilities);
-        var statements = new Multiple<AstNode>(name + "S", new Grammar[] {statement, MNL, null});
+        var statement = OneOf(name, possibilities);
+        var statements = Multiple<AstNode>(name + "S", new Grammar[] {statement, MNL});
         return new Pattern(name + "S+NL", new Grammar[] {ONL, statements, ONL}, (_, nodes) => nodes[1]);
     }
 
@@ -300,9 +298,9 @@ abstract class Grammar {
         var EQUAL = new Tok(Token.Type.EQUAL);
         var IL = new Tok(Token.Type.IL);
 
-        var VALUE = new Pattern("VALUE", new Grammar[] {STRING, INTEGER, IDENTIFIER});
+        var VALUE = OneOf("VALUE", new Grammar[] {STRING, INTEGER, IDENTIFIER});
 
-        var ARG_LIST = new Multiple<AstNode.Value>("ARG_LIST", new Grammar[] {VALUE, COMMA, null});
+        var ARG_LIST = Multiple<AstNode.Value>("ARG_LIST", new Grammar[] {VALUE, COMMA});
         var ARGUMENTS = new Pattern("ARGUMENTS", new Grammar[][] {
             new Grammar[] {LPARAN, RPARAN},
             new Grammar[] {LPARAN, ARG_LIST, RPARAN}
@@ -318,7 +316,7 @@ abstract class Grammar {
         });
 
         // A single term in an expresion
-        var TERM = new Pattern("TERM", new Grammar[] {STRING, INTEGER, IDENTIFIER});
+        var TERM = OneOf("TERM", new Grammar[] {STRING, INTEGER, IDENTIFIER});
 
         // Expression Part
         var EXP_PART = new Pattern("EXP_PART", new Grammar[][] {
@@ -360,7 +358,7 @@ abstract class Grammar {
         var PARAM = new Pattern("PARAM", new Grammar[] {IDENTIFIER, IDENTIFIER}, 
             (loc, nodes) => new AstNode.Param(loc, nodes)
         );
-        var PARAM_LIST = new Multiple<AstNode.Param>("PARAM_LIST", new Grammar[] {PARAM, COMMA, null});
+        var PARAM_LIST = Multiple<AstNode.Param>("PARAM_LIST", new Grammar[] {PARAM, COMMA});
         var PARAMETERS = new Pattern("PARAMETERS", new Grammar[][] {
             new Grammar[] {LPARAN, RPARAN},
             new Grammar[] {LPARAN, PARAM_LIST, RPARAN}
@@ -371,14 +369,14 @@ abstract class Grammar {
         });
 
         // function definition identifier
-        var FUNC_IDEN = new Pattern("FUNC_IDEN", new Grammar[] {IDENTIFIER, OPERATOR});
+        var FUNC_IDEN = OneOf("FUNC_IDEN", new Grammar[] {IDENTIFIER, OPERATOR});
 
         var FUNC_DEF = new Pattern("FUNC_DEF", 
             new Grammar[] {IDENTIFIER, FUNC_IDEN, PARAMETERS, LCURLY, LOCAL_STATEMENTS, RCURLY}, 
             (loc, nodes) => new AstNode.FuncDef(loc, nodes)
         );
 
-        var TYPE_LIST = new Multiple<AstNode.Value>("TYPE_LIST", new Grammar[] {IDENTIFIER, COMMA, null});
+        var TYPE_LIST = Multiple<AstNode.Value>("TYPE_LIST", new Grammar[] {IDENTIFIER, COMMA});
         // TODO: allow having no parameters
         var IL_FUNC = new Pattern("IL_FUNC", 
             new Grammar[] {IL, IDENTIFIER, FUNC_IDEN, LPARAN, TYPE_LIST, RPARAN, STRING},
