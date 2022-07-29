@@ -66,6 +66,100 @@ class Token {
 
 }
 
+class Lexer {
+    
+    string file;
+    int i = 0;
+    Location position = new Location(1, 1);
+
+    delegate bool ContinueConsuming(char next);
+
+    public Lexer(string file_path) => file = File.ReadAllText(file_path);
+    
+    void Increment() {
+        position.Increase(file[i]);
+        i++;
+    }
+
+    string ConsumeWhile(ContinueConsuming continueConsuming) {
+        string content = "";
+        while (continueConsuming(file[i + 1])) {
+            Increment();
+            content += file[i];
+        }
+        return content;
+    }
+
+    string ConsumeWhile(char start, ContinueConsuming cc) => start.ToString() + ConsumeWhile(cc);
+    
+    static bool IsOperatorChar(char c) => "+-*/%".Contains(c);
+    
+    public List<Token> Lex() {
+        List<Token> tokens = new List<Token>();
+
+        while (i < file.Length) {
+            char c = file[i];
+            Token.Type type = Token.Type.NOTHING;
+            string value = null;
+            Location loc = position.Copy();
+
+            if (Char.IsWhiteSpace(c)) {
+                if (c == '\n') type = Token.Type.NEWLINE;
+            } else if (Char.IsLetter(c) || c  == '_') {
+                string content = ConsumeWhile(c, ch => Char.IsLetterOrDigit(ch) || ch == '_');
+                if (content == "il") {
+                    type = Token.Type.IL;
+                } else {
+                    type = Token.Type.IDENTIFIER;
+                    value = content;
+                }
+            } else if (Char.IsDigit(c)) {
+                type = Token.Type.INTEGER;
+                value = ConsumeWhile(c, ch => Char.IsDigit(ch));
+            } else if (IsOperatorChar(c)) {
+                type = Token.Type.OPERATOR;
+                value = ConsumeWhile(c, IsOperatorChar);
+            } else switch (c) {
+                case '(':
+                    type = Token.Type.LPARAN;
+                    break;
+                case ')':
+                    type = Token.Type.RPARAN;
+                    break;
+                case '{':
+                    type = Token.Type.LCURLY;
+                    break;
+                case '}':
+                    type = Token.Type.RCURLY;
+                    break;
+                case '=':
+                    type = Token.Type.EQUAL;
+                    break;
+                case ',':
+                    type = Token.Type.COMMA;
+                    break;
+                case '"':
+                    type = Token.Type.STRING;
+                    value = ConsumeWhile(ch => ch != '"');
+                    Increment();
+                    break;
+                case '#':
+                    ConsumeWhile(ch => ch != '\n');
+                    break;
+                default:
+                    Umi.Crash($"Unknown character: {c}", loc);
+                    break;
+            }
+
+            if (type != Token.Type.NOTHING) tokens.Add(new Token(type, loc, value));
+            Increment();
+        }
+
+        return tokens;
+    }
+
+}
+
 abstract class Grammar {
 
     protected abstract AstNode GenAst();
@@ -658,97 +752,13 @@ class Umi {
         Environment.Exit(1);
     }
 
-    delegate bool ContinueConsuming(char next);
-
-    static string ConsumeWhile(string file, ref int i, Location position, ContinueConsuming continueConsuming) {
-        string content = "";
-        while (continueConsuming(file[i + 1])) {
-            i++;
-            position.Increase(file[i]);
-            content += file[i];
-        }
-        return content;
-    }
-
-    static string ConsumeWhile(char start, string f, ref int i, Location p, ContinueConsuming cc) {
-        return start.ToString() + ConsumeWhile(f, ref i, p, cc);
-    }
-
-    static bool IsOperatorChar(char c) => "+-*/%".Contains(c);
-    
-    static List<Token> Lex(string file) {
-        Location position = new Location(1, 1);
-        List<Token> tokens = new List<Token>();
-
-        for (int i = 0; i < file.Length; i++) {
-            char c = file[i];
-            Token.Type? type = null;
-            string value = null;
-            Location loc = position.Copy();
-
-            if (Char.IsWhiteSpace(c)) {
-                if (c == '\n') type = Token.Type.NEWLINE;
-            } else if (Char.IsLetter(c) || c  == '_') {
-                string content = ConsumeWhile(c, file, ref i, position, ch => Char.IsLetterOrDigit(ch) || ch == '_');
-                if (content == "il") {
-                    type = Token.Type.IL;
-                } else {
-                    type = Token.Type.IDENTIFIER;
-                    value = content;
-                }
-            } else if (Char.IsDigit(c)) {
-                type = Token.Type.INTEGER;
-                value = ConsumeWhile(c, file, ref i, position, ch => Char.IsDigit(ch));
-            } else if (IsOperatorChar(c)) {
-                type = Token.Type.OPERATOR;
-                value = ConsumeWhile(c, file, ref i, position, IsOperatorChar);
-            } else switch (c) {
-                case '(':
-                    type = Token.Type.LPARAN;
-                    break;
-                case ')':
-                    type = Token.Type.RPARAN;
-                    break;
-                case '{':
-                    type = Token.Type.LCURLY;
-                    break;
-                case '}':
-                    type = Token.Type.RCURLY;
-                    break;
-                case '=':
-                    type = Token.Type.EQUAL;
-                    break;
-                case ',':
-                    type = Token.Type.COMMA;
-                    break;
-                case '"':
-                    type = Token.Type.STRING;
-                    value = ConsumeWhile(file, ref i, position, ch => ch != '"');
-                    i++;
-                    position.Increase(file[i]);
-                    break;
-                case '#':
-                    ConsumeWhile(file, ref i, position, ch => ch != '\n');
-                    break;
-                default:
-                    Umi.Crash($"Unknown character: {c}", loc);
-                    break;
-            }
-
-            if (type != null) tokens.Add(new Token(type.Value, loc, value));
-            position.Increase(c);
-        }
-
-        return tokens;
-    }
-
     static void Main(string[] args) {
         if (args.Length < 1) {
             Console.WriteLine("You must specify the path to the file");
             Environment.Exit(1);
         }
 
-        List<Token> tokens = Lex(File.ReadAllText(args[0]));
+        List<Token> tokens = new Lexer(args[0]).Lex();
         AstNode.Program ast = Grammar.ParseTokens(tokens);
         Scope global_namespace = new Scope(null);
         ast.CreateNameInfo(global_namespace);
