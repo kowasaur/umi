@@ -1,7 +1,13 @@
 {
     "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
     "name": "Umi",
-    "patterns": [{ "include": "#comments" }, { "include": "#keywords" }, { "include": "#strings" }],
+    "patterns": [
+        { "include": "#comments" },
+        { "include": "#keywords" },
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "include": "#operators" }
+    ],
     "repository": {
         "comments": {
             "name": "comment.line.number-sign",
@@ -15,7 +21,16 @@
         "strings": {
             "name": "string.quoted.double",
             "begin": "\"",
-            "end": "\""
+            "end": "\"",
+            "patterns": [{ "name": "constant.character.escape", "match": "\\\\." }]
+        },
+        "numbers": {
+            "name": "constant.numeric",
+            "match": "\\b\\d+"
+        },
+        "operators": {
+            "name": "keyword.operator",
+            "match": "[=+\\-*\\/%]+"
         }
     },
     "scopeName": "source.umi"

@@ -3,14 +3,17 @@ il int32 +(int32, int32) "add"
 il int32 -(int32, int32) "sub"
 il int32 *(int32, int32) "mul"
 il int32 /(int32, int32) "div"
+il int32 %(int32, int32) "rem"
 
 void main() {
     int32 plus = 9 + 10
     int32 minus = plus - 3
     int32 mul = 3 * 5
     int32 div = 75 / mul
+    int32 mod = 25 % 3
     print(plus)
     print(minus)
     print(mul)
     print(div)
+    print(mod)
 }

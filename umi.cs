@@ -605,8 +605,7 @@ abstract class Name {
             local_variables = new Scope(parent);
         }
         public override void GenIl(string name) {
-            // TODO: use real type
-            Output.WriteLine($"call void {name}({String.Join(", ", param_types)})");
+            Output.WriteLine($"call {return_type} {name}({String.Join(", ", param_types)})");
         }
     }
 
@@ -675,7 +674,7 @@ class Umi {
         return start.ToString() + ConsumeWhile(f, ref i, p, cc);
     }
 
-    static bool IsOperatorChar(char c) => "+-*/".Contains(c);
+    static bool IsOperatorChar(char c) => "+-*/%".Contains(c);
     
     static List<Token> Lex(string file) {
         Location position = new Location(1, 1);
