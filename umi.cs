@@ -315,8 +315,12 @@ abstract class Grammar {
             return new AstNode.FuncCall(loc, name, (AstNode.Arguments)nodes[1]);
         });
 
+        var SUBEXPRESSION = new Pattern ("SUBEXPRESSION", new Grammar[] {LPARAN, null, RPARAN}, 
+            (_, nodes) => nodes[1]
+        );
+
         // A single term in an expresion
-        var TERM = OneOf("TERM", new Grammar[] {STRING, INTEGER, IDENTIFIER});
+        var TERM = OneOf("TERM", new Grammar[] {STRING, INTEGER, IDENTIFIER, SUBEXPRESSION});
 
         // Expression Part
         var EXP_PART = new Pattern("EXP_PART", new Grammar[][] {
@@ -332,16 +336,16 @@ abstract class Grammar {
         EXP_PART.possible_patterns[0][2] = EXP_PART;
 
         var EXPRESSION = new Pattern("EXPRESSION", new Grammar[] {EXP_PART}, (loc, nodes) => {
-            // TODO: remove cast
-            var parts = ((AstNode.Multiple<AstNode>)nodes[0]).ToArray().Cast<AstNode.Value>().ToArray();
+            var parts = ((AstNode.Multiple<AstNode>)nodes[0]).ToArray();
 
             if (parts.Length == 1) return parts[0];
             // TODO: allow arbitrarily long expressions
             if (parts.Length != 3) Umi.Crash("arbitrarily long expressions not implemented", loc);
 
-            var args = new AstNode.Arguments(loc, new AstNode.Value[] {parts[0], parts[2]});
-            return new AstNode.FuncCall(loc, parts[1].token.value, args);
+            var args = new AstNode.Arguments(loc, new AstNode[] {parts[0], parts[2]});
+            return new AstNode.FuncCall(loc, ((AstNode.Value)parts[1]).token.value, args);
         });
+        SUBEXPRESSION.possible_patterns[0][1] = EXPRESSION;
 
         var VAR_ASSIGN = new Pattern("VAR_ASSIGN", new Grammar[] {IDENTIFIER, EQUAL, EXPRESSION}, (loc, nodes) => {
             string name = ((AstNode.Value)nodes[0]).token.value;
@@ -480,8 +484,8 @@ class AstNode {
     }
 
     public class Arguments : AstNode {
-        public readonly Value[] args;
-        public Arguments(Location loc, Value[] args) : base(loc) => this.args = args;
+        public readonly AstNode[] args;
+        public Arguments(Location loc, AstNode[] args) : base(loc) => this.args = args;
     }
 
     public class Param : AstNode {
@@ -500,7 +504,7 @@ class AstNode {
 
     public class FuncCall : AstNode {
         readonly string name;
-        readonly Value[] arguments;
+        readonly AstNode[] arguments;
 
         public FuncCall(Location loc, string name, Arguments args) : base(loc) {
             this.name = name;
@@ -514,7 +518,7 @@ class AstNode {
                 Umi.Crash("Incorrect number of arguments", location);
             }
             for (int i = 0; i < arguments.Length; i++) {
-                Value arg = arguments[i];
+                AstNode arg = arguments[i];
                 arg.ExpectType(expected_types[i], scope);
                 arg.GenIl(scope);
             }
