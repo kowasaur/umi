@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
+using System.Diagnostics;
 
 class Location {
 
@@ -74,7 +75,15 @@ class Lexer {
 
     delegate bool ContinueConsuming(char next);
 
-    public Lexer(string file_path) => file = File.ReadAllText(file_path);
+    public Lexer(string file_path) {
+        try {
+            file = File.ReadAllText(file_path);
+        }
+        catch (FileNotFoundException) {
+            Console.WriteLine(file_path + " does not exist");
+            Environment.Exit(1);
+        }
+    }
     
     void Increment() {
         position.Increase(file[i]);
@@ -162,7 +171,9 @@ class Lexer {
 
 abstract class Grammar {
 
+    readonly bool optional;
     protected abstract AstNode GenAst();
+    public Grammar(bool optional) => this.optional = optional; 
 
     static List<Token> tokens;
     static int i = 0; // the cursor in tokens
@@ -174,7 +185,7 @@ abstract class Grammar {
     class Tok : Grammar {
         readonly Token.Type token_type;
 
-        public Tok(Token.Type token_type) => this.token_type = token_type;
+        public Tok(Token.Type token_type, bool optional = false): base(optional) => this.token_type = token_type;
 
         protected override AstNode GenAst() {
             if (i == tokens.Count) {
@@ -200,12 +211,12 @@ abstract class Grammar {
         NodeCreate CreateAstNode;
         readonly string name;
 
-        public Pattern(string name, Grammar[][] posible_patterns, NodeCreate CreateAstNode) {
+        public Pattern(string name, Grammar[][] posible_patterns, NodeCreate CreateAstNode, bool optional = false): base(optional) {
             this.name = name;
             this.possible_patterns = posible_patterns;
             this.CreateAstNode = CreateAstNode;
         }
-        public Pattern(string name, Grammar[] pattern, NodeCreate CreateAstNode) {
+        public Pattern(string name, Grammar[] pattern, NodeCreate CreateAstNode, bool optional = false): base(optional) {
             this.name = name;
             this.possible_patterns = new Grammar[][] {pattern};
             this.CreateAstNode = CreateAstNode;
@@ -229,7 +240,7 @@ abstract class Grammar {
                 int old_i = i;
                 foreach (Grammar grammar in pattern) {
                     var ast_node = grammar.GenAst();
-                    if (ast_node == null) {
+                    if (ast_node == null && !grammar.optional) {
                         matched = false;
                         break;
                     }
@@ -253,7 +264,7 @@ abstract class Grammar {
         return pat;
     }
 
-    static Pattern Multiple<T>(string name, Grammar[] grammar) where T : AstNode {
+    static Pattern Multiple<T>(string name, Grammar[] grammar, bool optional = false) where T : AstNode {
         var g = new Grammar[grammar.Length + 1]; // last is null
         grammar.CopyTo(g, 0);
         var pat = new Pattern(name, new Grammar[][] {g, new Grammar[] {g[0]}},
@@ -263,7 +274,7 @@ abstract class Grammar {
                 var values = (AstNode.Multiple<T>)nodes[nodes.Count - 1];
                 values.list.Add(new_value);
                 return values;
-            }
+            }, optional
         );
         g[g.Length - 1] = pat;
         return pat;
@@ -388,16 +399,20 @@ abstract class Grammar {
             (loc, nodes) => new AstNode.FuncDef(loc, nodes)
         );
 
-        var TYPE_LIST = Multiple<AstNode.Identifier>("TYPE_LIST", new Grammar[] {IDENTIFIER, COMMA});
-        // TODO: allow having no parameters
+        var TYPE_LIST = Multiple<AstNode.Identifier>("TYPE_LIST", new Grammar[] {IDENTIFIER, COMMA}, true);
         var IL_FUNC = new Pattern("IL_FUNC", 
             new Grammar[] {IL, IDENTIFIER, FUNC_IDEN, LPARAN, TYPE_LIST, RPARAN, STRING},
             (loc, nodes) => {
                 string type = ((AstNode.Identifier)nodes[1]).content;
                 string name = ((AstNode.Identifier)nodes[2]).content;
                 string il = ((AstNode.StringLiteral)nodes[6]).content;
-                var values = ((AstNode.Multiple<AstNode.Identifier>)nodes[4]).ToArray();
-                string[] param_types = Array.ConvertAll(values, v => v.content);
+                string[] param_types;
+                if (nodes[4] == null) {
+                    param_types = new string[0];
+                } else {
+                    var values = ((AstNode.Multiple<AstNode.Identifier>)nodes[4]).ToArray();
+                    param_types = Array.ConvertAll(values, v => v.content);
+                }
                 return new AstNode.IlFunc(loc, name, il, param_types, type);
             }
         );
@@ -767,6 +782,19 @@ class Umi {
         Scope global_namespace = new Scope(null);
         ast.CreateNameInfo(global_namespace);
         ast.GenIl(global_namespace);
+
+        using (Process ilasm = new Process()) {
+            ilasm.StartInfo.FileName = "ilasm";
+            ilasm.StartInfo.Arguments = "output.il";
+            ilasm.StartInfo.UseShellExecute = false;
+            ilasm.StartInfo.RedirectStandardOutput = true;
+            ilasm.Start();
+            ilasm.WaitForExit();
+            if (ilasm.ExitCode != 0) {
+                Console.WriteLine("ilasm failed to assemble output.il");
+                Environment.Exit(1);
+            }
+        }
     }
 
 }

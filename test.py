@@ -14,8 +14,6 @@ def error(path: str, error_message: str) -> None:
 def compile_file(path: str) -> None:
     if subprocess.run(["mono", "umi.exe", path]).returncode:
         error(path, "failed to compile")
-    if subprocess.run(["ilasm", "output.il"], stdout=subprocess.DEVNULL).returncode:
-        error(path, "failed to assemble")
 
 def expected_path(path: str) -> str:
     return f"{os.path.splitext(path)[0]}.expected"
@@ -35,7 +33,9 @@ def affect_all(output_func: Callable[[str, str], None]) -> None:
     for directory in ["examples", "tests"]:
         for path in glob(f"{directory}/*.umi"):
             compile_file(path)
-            output = subprocess.check_output(["mono", "output.exe"]).decode("utf-8")
+            # I'm using a 0 as the input because probably the only 
+            # other thing with input I will test is a truth machine
+            output = subprocess.check_output(["mono", "output.exe"], input="0", text=True)
             output_func(path, output)
 
 if __name__ == "__main__":
