@@ -183,7 +183,7 @@ abstract class Grammar {
                 furthest_got = new Token(Token.Type.NOTHING, loc, null);
                 furthest_expected = token_type;
             } else if (tokens[i].type == token_type) {
-                return new AstNode.Value(tokens[i++]);
+                return new AstNode.Tok(tokens[i++]);
             } else if (tokens[i].location > furthest_got.location) {
                 furthest_got = tokens[i];
                 furthest_expected = token_type;
@@ -291,36 +291,28 @@ abstract class Grammar {
         var LCURLY = new Tok(Token.Type.LCURLY);
         var RCURLY = new Tok(Token.Type.RCURLY);
         var COMMA = new Tok(Token.Type.COMMA);
-        var IDENTIFIER = new Tok(Token.Type.IDENTIFIER);
-        var OPERATOR = new Tok(Token.Type.OPERATOR);
-        var STRING = new Tok(Token.Type.STRING);
-        var INTEGER = new Tok(Token.Type.INTEGER);
         var EQUAL = new Tok(Token.Type.EQUAL);
         var IL = new Tok(Token.Type.IL);
 
-        var VALUE = OneOf("VALUE", new Grammar[] {STRING, INTEGER, IDENTIFIER});
-
-        var ARG_LIST = Multiple<AstNode.Value>("ARG_LIST", new Grammar[] {VALUE, COMMA});
-        var ARGUMENTS = new Pattern("ARGUMENTS", new Grammar[][] {
-            new Grammar[] {LPARAN, RPARAN},
-            new Grammar[] {LPARAN, ARG_LIST, RPARAN}
-        }, (loc, nodes) => {
-            if (nodes.Count == 2) return new AstNode.Arguments(loc, new AstNode.Value[0]);
-            var values = ((AstNode.Multiple<AstNode.Value>)nodes[1]).ToArray();
-            return new AstNode.Arguments(loc, values);
-        });
-
-        var FUNC_CALL = new Pattern("FUNC_CALL", new Grammar[] {IDENTIFIER, ARGUMENTS}, (loc, nodes) => {
-            string name = ((AstNode.Value)nodes[0]).token.value;
-            return new AstNode.FuncCall(loc, name, (AstNode.Arguments)nodes[1]);
-        });
+        var STRING = new Pattern("STRING", new Grammar[] {new Tok(Token.Type.STRING)}, 
+            (_, nodes) => new AstNode.StringLiteral((AstNode.Tok)nodes[0])
+        );
+        var INTEGER = new Pattern("INTEGER", new Grammar[] {new Tok(Token.Type.INTEGER)}, 
+            (_, nodes) => new AstNode.IntegerLiteral((AstNode.Tok)nodes[0])
+        );
+        var IDENTIFIER = new Pattern("IDENTIFIER", new Grammar[] {new Tok(Token.Type.IDENTIFIER)}, 
+            (_, nodes) => new AstNode.Identifier((AstNode.Tok)nodes[0])
+        );
+        var OPERATOR = new Pattern("OPERATOR", new Grammar[] {new Tok(Token.Type.OPERATOR)},
+            (_, nodes) => new AstNode.Identifier((AstNode.Tok)nodes[0])
+        );
 
         var SUBEXPRESSION = new Pattern ("SUBEXPRESSION", new Grammar[] {LPARAN, null, RPARAN}, 
             (_, nodes) => nodes[1]
         );
 
         // A single term in an expresion
-        var TERM = OneOf("TERM", new Grammar[] {STRING, INTEGER, FUNC_CALL, IDENTIFIER, SUBEXPRESSION});
+        var TERM = OneOf("TERM", new Grammar[] {STRING, INTEGER, null, IDENTIFIER, SUBEXPRESSION});
 
         // Expression Part
         var EXP_PART = new Pattern("EXP_PART", new Grammar[][] {
@@ -343,17 +335,33 @@ abstract class Grammar {
             if (parts.Length != 3) Umi.Crash("arbitrarily long expressions not implemented", loc);
 
             var args = new AstNode.Arguments(loc, new AstNode[] {parts[0], parts[2]});
-            return new AstNode.FuncCall(loc, ((AstNode.Value)parts[1]).token.value, args);
+            return new AstNode.FuncCall(loc, ((AstNode.Identifier)parts[1]).content, args);
         });
         SUBEXPRESSION.possible_patterns[0][1] = EXPRESSION;
 
+        var ARG_LIST = Multiple<AstNode>("ARG_LIST", new Grammar[] {EXPRESSION, COMMA});
+        var ARGUMENTS = new Pattern("ARGUMENTS", new Grammar[][] {
+            new Grammar[] {LPARAN, RPARAN},
+            new Grammar[] {LPARAN, ARG_LIST, RPARAN}
+        }, (loc, nodes) => {
+            if (nodes.Count == 2) return new AstNode.Arguments(loc, new AstNode[0]);
+            var values = ((AstNode.Multiple<AstNode>)nodes[1]).ToArray();
+            return new AstNode.Arguments(loc, values);
+        });
+
+        var FUNC_CALL = new Pattern("FUNC_CALL", new Grammar[] {IDENTIFIER, ARGUMENTS}, (loc, nodes) => {
+            string name = ((AstNode.Identifier)nodes[0]).content;
+            return new AstNode.FuncCall(loc, name, (AstNode.Arguments)nodes[1]);
+        });
+        TERM.possible_patterns[2][0] = FUNC_CALL;
+
         var VAR_ASSIGN = new Pattern("VAR_ASSIGN", new Grammar[] {IDENTIFIER, EQUAL, EXPRESSION}, (loc, nodes) => {
-            string name = ((AstNode.Value)nodes[0]).token.value;
+            string name = ((AstNode.Identifier)nodes[0]).content;
             return new AstNode.VarAssign(loc, name, nodes[2]);
         });
 
         var VAR_DEF = new Pattern("VAR_DEF", new Grammar[] {IDENTIFIER, VAR_ASSIGN}, (loc, nodes) => {
-            string type = ((AstNode.Value)nodes[0]).token.value;
+            string type = ((AstNode.Identifier)nodes[0]).content;
             return new AstNode.VarDef(loc, type, (AstNode.VarAssign)nodes[1]);
         });
 
@@ -380,16 +388,16 @@ abstract class Grammar {
             (loc, nodes) => new AstNode.FuncDef(loc, nodes)
         );
 
-        var TYPE_LIST = Multiple<AstNode.Value>("TYPE_LIST", new Grammar[] {IDENTIFIER, COMMA});
+        var TYPE_LIST = Multiple<AstNode.Identifier>("TYPE_LIST", new Grammar[] {IDENTIFIER, COMMA});
         // TODO: allow having no parameters
         var IL_FUNC = new Pattern("IL_FUNC", 
             new Grammar[] {IL, IDENTIFIER, FUNC_IDEN, LPARAN, TYPE_LIST, RPARAN, STRING},
             (loc, nodes) => {
-                string type = ((AstNode.Value)nodes[1]).token.value;
-                string name = ((AstNode.Value)nodes[2]).token.value;
-                string il = ((AstNode.Value)nodes[6]).token.value;
-                var values = ((AstNode.Multiple<AstNode.Value>)nodes[4]).ToArray();
-                string[] param_types = Array.ConvertAll(values, v => v.token.value);
+                string type = ((AstNode.Identifier)nodes[1]).content;
+                string name = ((AstNode.Identifier)nodes[2]).content;
+                string il = ((AstNode.StringLiteral)nodes[6]).content;
+                var values = ((AstNode.Multiple<AstNode.Identifier>)nodes[4]).ToArray();
+                string[] param_types = Array.ConvertAll(values, v => v.content);
                 return new AstNode.IlFunc(loc, name, il, param_types, type);
             }
         );
@@ -431,46 +439,9 @@ class AstNode {
         }
     }
 
-    public class Value : AstNode {
+    public class Tok : AstNode {
         public readonly Token token;
-        public Value(Token token) : base(token.location) => this.token = token;
-
-        public override void GenIl(Scope scope) {
-            switch (token.type) {
-                case Token.Type.STRING:
-                    Output.WriteLine($"ldstr \"{token.value}\"");
-                    break;
-                case Token.Type.INTEGER:
-                    Output.WriteLine($"ldc.i4 {token.value}");
-                    break;
-                case Token.Type.IDENTIFIER:
-                    Name.Var variable = (Name.Var)scope.LookUp(token.value, location);
-                    if (variable.defined_at > location) {
-                        Umi.Crash($"Can not use variable `{token.value}` before it is defined", location);
-                    }
-                    Output.WriteLine($"{(variable.is_param ? "ldarg" : "ldloc")} {variable.index}");
-                    break;
-                default:
-                    Umi.Crash("No Value IL generation for " + token.type, token.location);
-                    break;
-            }
-        }
-
-        protected override string Type(Scope scope) {
-            switch (token.type) {
-                case Token.Type.STRING:
-                    return "string";
-                case Token.Type.INTEGER:
-                    return "int32";
-                case Token.Type.IDENTIFIER:
-                    Name.Var variable = (Name.Var)scope.LookUp(token.value, location);
-                    return variable.type;
-                default:
-                    Umi.Crash("No Value type for " + token.type, token.location);
-                    return "unreachable";
-            }
-        }
- 
+        public Tok(Token token) : base(token.location) => this.token = token;
     }
 
     public class Multiple<T> : AstNode where T : AstNode {
@@ -483,6 +454,37 @@ class AstNode {
         }
     }
 
+    public abstract class Value : AstNode {
+        public readonly string content;
+        public Value(Tok tok) : base(tok.location) => content = tok.token.value;
+    }
+
+    public class StringLiteral : Value {
+        public StringLiteral(Tok tok): base(tok) {}
+        protected override string Type(Scope _) => "string";
+        public override void GenIl(Scope _) => Output.WriteLine($"ldstr \"{content}\"");
+    }
+
+    public class IntegerLiteral : Value {
+        public IntegerLiteral(Tok tok): base(tok) {}
+        protected override string Type(Scope _) => "int32";
+        public override void GenIl(Scope _) => Output.WriteLine($"ldc.i4 {content}");
+    }
+
+    public class Identifier : Value {
+        public Identifier(Tok tok): base(tok) {}
+
+        protected override string Type(Scope scope) => ((Name.Var)scope.LookUp(content, location)).type;
+
+        public override void GenIl(Scope scope) {
+            Name.Var variable = (Name.Var)scope.LookUp(content, location);
+            if (variable.defined_at > location) {
+                Umi.Crash($"Can not use variable `{content}` before it is defined", location);
+            }
+            Output.WriteLine($"{(variable.is_param ? "ldarg" : "ldloc")} {variable.index}");
+        }
+    }
+
     public class Arguments : AstNode {
         public readonly AstNode[] args;
         public Arguments(Location loc, AstNode[] args) : base(loc) => this.args = args;
@@ -492,8 +494,8 @@ class AstNode {
         public readonly string type;
         public readonly string name;
         public Param(Location loc, List<AstNode> nodes) : base(loc) {
-            this.type = ((AstNode.Value)nodes[0]).token.value;
-            this.name = ((AstNode.Value)nodes[1]).token.value;
+            this.type = ((AstNode.Identifier)nodes[0]).content;
+            this.name = ((AstNode.Identifier)nodes[1]).content;
         }
     }
 
@@ -571,8 +573,8 @@ class AstNode {
         readonly Param[] parameters;
 
         public FuncDef(Location loc, List<AstNode> nodes) : base(loc) {
-            return_type = ((Value)nodes[0]).token.value;
-            name = ((Value)nodes[1]).token.value;
+            return_type = ((Identifier)nodes[0]).content;
+            name = ((Identifier)nodes[1]).content;
             parameters = ((Parameters)nodes[2]).parameters;
             statements = ((Multiple<AstNode>)nodes[4]).ToArray();
         }

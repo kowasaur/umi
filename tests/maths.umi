@@ -17,6 +17,5 @@ void main() {
     print(div)
     print(mod)
 
-    int32 nesting = (5 + (6 / 2)) * 3
-    print(nesting)
+    print((5 + (6 / 2)) * 3)
 }
