@@ -320,7 +320,7 @@ abstract class Grammar {
         );
 
         // A single term in an expresion
-        var TERM = OneOf("TERM", new Grammar[] {STRING, INTEGER, IDENTIFIER, SUBEXPRESSION});
+        var TERM = OneOf("TERM", new Grammar[] {STRING, INTEGER, FUNC_CALL, IDENTIFIER, SUBEXPRESSION});
 
         // Expression Part
         var EXP_PART = new Pattern("EXP_PART", new Grammar[][] {
@@ -357,7 +357,7 @@ abstract class Grammar {
             return new AstNode.VarDef(loc, type, (AstNode.VarAssign)nodes[1]);
         });
 
-        var LOCAL_STATEMENTS = NewStatements("LOCAL", new Grammar[] {FUNC_CALL, VAR_DEF, VAR_ASSIGN});
+        var LOCAL_STATEMENTS = NewStatements("LOCAL", new Grammar[] {VAR_DEF, VAR_ASSIGN, EXPRESSION});
 
         var PARAM = new Pattern("PARAM", new Grammar[] {IDENTIFIER, IDENTIFIER}, 
             (loc, nodes) => new AstNode.Param(loc, nodes)

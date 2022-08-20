@@ -1,19 +1,19 @@
 il void print(string) "call void [mscorlib]System.Console::WriteLine(string)"
 il void write(string) "call void [mscorlib]System.Console::Write(string)"
 il void printn(int32) "call void [mscorlib]System.Console::WriteLine(int32)"
+il string +(string, string) "call string string::Concat(string, string)"
 
-void exclaim() {
-    print("poggers!")
+string createHello(string name) {
+    # Implicit return
+    "Hello, " + name
 }
 
 void greet(string name, int32 age) {
-    string message = "Hello, "
+    string message = createHello(name)
     write(message)
-    write(name)
     message = " aged "
     write(message)
     printn(age)
-    exclaim()
 }
 
 void greetTim(int32 age) {
