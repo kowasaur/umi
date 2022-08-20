@@ -223,6 +223,7 @@ abstract class Grammar {
         }
 
         public static implicit operator string(Pattern p) => p.name;
+        public Pattern NewOptional(string name) => new Pattern(name, possible_patterns, CreateAstNode, true);
 
         protected override AstNode GenAst() {
             if (i == tokens.Count) return null;
@@ -285,9 +286,7 @@ abstract class Grammar {
         new Tok(Token.Type.NEWLINE)
     });
     // Optional newlines
-    static readonly Pattern ONL = new Pattern("ONL", new Grammar[][] {
-        new Grammar[] {MNL}, new Grammar[0]
-    }, (loc, _) => new AstNode(loc));
+    static readonly Pattern ONL = MNL.NewOptional("ONL");
 
     static Pattern NewStatements(string space, Grammar[] possibilities) {
         string name = space + "_STATEMENT";
@@ -345,24 +344,15 @@ abstract class Grammar {
             // TODO: allow arbitrarily long expressions
             if (parts.Length != 3) Umi.Crash("arbitrarily long expressions not implemented", loc);
 
-            var args = new AstNode.Arguments(loc, new AstNode[] {parts[0], parts[2]});
-            return new AstNode.FuncCall(loc, ((AstNode.Identifier)parts[1]).content, args);
+            return new AstNode.FuncCall(loc, ((AstNode.Identifier)parts[1]).content, new AstNode[] {parts[0], parts[2]});
         });
         SUBEXPRESSION.possible_patterns[0][1] = EXPRESSION;
 
-        var ARG_LIST = Multiple<AstNode>("ARG_LIST", new Grammar[] {EXPRESSION, COMMA});
-        var ARGUMENTS = new Pattern("ARGUMENTS", new Grammar[][] {
-            new Grammar[] {LPARAN, RPARAN},
-            new Grammar[] {LPARAN, ARG_LIST, RPARAN}
-        }, (loc, nodes) => {
-            if (nodes.Count == 2) return new AstNode.Arguments(loc, new AstNode[0]);
-            var values = ((AstNode.Multiple<AstNode>)nodes[1]).ToArray();
-            return new AstNode.Arguments(loc, values);
-        });
-
-        var FUNC_CALL = new Pattern("FUNC_CALL", new Grammar[] {IDENTIFIER, ARGUMENTS}, (loc, nodes) => {
+        var ARGUMENTS = Multiple<AstNode>("ARGUMENTS", new Grammar[] {EXPRESSION, COMMA}, optional: true);
+        var FUNC_CALL = new Pattern("FUNC_CALL", new Grammar[] {IDENTIFIER, LPARAN, ARGUMENTS, RPARAN}, (loc, nodes) => {
             string name = ((AstNode.Identifier)nodes[0]).content;
-            return new AstNode.FuncCall(loc, name, (AstNode.Arguments)nodes[1]);
+            var args = nodes[2] == null ? new AstNode[0] : ((AstNode.Multiple<AstNode>)nodes[2]).ToArray();
+            return new AstNode.FuncCall(loc, name, args);
         });
         TERM.possible_patterns[2][0] = FUNC_CALL;
 
@@ -378,28 +368,19 @@ abstract class Grammar {
 
         var LOCAL_STATEMENTS = NewStatements("LOCAL", new Grammar[] {VAR_DEF, VAR_ASSIGN, EXPRESSION});
 
-        var PARAM = new Pattern("PARAM", new Grammar[] {IDENTIFIER, IDENTIFIER}, 
-            (loc, nodes) => new AstNode.Param(loc, nodes)
-        );
-        var PARAM_LIST = Multiple<AstNode.Param>("PARAM_LIST", new Grammar[] {PARAM, COMMA});
-        var PARAMETERS = new Pattern("PARAMETERS", new Grammar[][] {
-            new Grammar[] {LPARAN, RPARAN},
-            new Grammar[] {LPARAN, PARAM_LIST, RPARAN}
-        }, (loc, nodes) => {
-            if (nodes.Count == 2) return new AstNode.Parameters(loc, new AstNode.Param[0]);
-            var param_list = ((AstNode.Multiple<AstNode.Param>)nodes[1]).ToArray();
-            return new AstNode.Parameters(loc, param_list);
-        });
-
         // function definition identifier
         var FUNC_IDEN = OneOf("FUNC_IDEN", new Grammar[] {IDENTIFIER, OPERATOR});
 
+        var PARAM = new Pattern("PARAM", new Grammar[] {IDENTIFIER, IDENTIFIER}, 
+            (loc, nodes) => new AstNode.Param(loc, nodes)
+        );
+        var PARAM_LIST = Multiple<AstNode.Param>("PARAM_LIST", new Grammar[] {PARAM, COMMA}, optional: true);
         var FUNC_DEF = new Pattern("FUNC_DEF", 
-            new Grammar[] {IDENTIFIER, FUNC_IDEN, PARAMETERS, LCURLY, LOCAL_STATEMENTS, RCURLY}, 
+            new Grammar[] {IDENTIFIER, FUNC_IDEN, LPARAN, PARAM_LIST, RPARAN, LCURLY, LOCAL_STATEMENTS, RCURLY},
             (loc, nodes) => new AstNode.FuncDef(loc, nodes)
         );
 
-        var TYPE_LIST = Multiple<AstNode.Identifier>("TYPE_LIST", new Grammar[] {IDENTIFIER, COMMA}, true);
+        var TYPE_LIST = Multiple<AstNode.Identifier>("TYPE_LIST", new Grammar[] {IDENTIFIER, COMMA}, optional: true);
         var IL_FUNC = new Pattern("IL_FUNC", 
             new Grammar[] {IL, IDENTIFIER, FUNC_IDEN, LPARAN, TYPE_LIST, RPARAN, STRING},
             (loc, nodes) => {
@@ -500,11 +481,6 @@ class AstNode {
         }
     }
 
-    public class Arguments : AstNode {
-        public readonly AstNode[] args;
-        public Arguments(Location loc, AstNode[] args) : base(loc) => this.args = args;
-    }
-
     public class Param : AstNode {
         public readonly string type;
         public readonly string name;
@@ -514,18 +490,13 @@ class AstNode {
         }
     }
 
-    public class Parameters : AstNode {
-        public readonly Param[] parameters;
-        public Parameters(Location loc, Param[] paras) : base(loc) => parameters = paras;
-    }
-
     public class FuncCall : AstNode {
         readonly string name;
         readonly AstNode[] arguments;
 
-        public FuncCall(Location loc, string name, Arguments args) : base(loc) {
+        public FuncCall(Location loc, string name, AstNode[] args) : base(loc) {
             this.name = name;
-            arguments = args.args;
+            arguments = args;
         }
 
         public override void GenIl(Scope scope) {
@@ -585,13 +556,15 @@ class AstNode {
         public readonly string name;
         readonly string return_type;
         readonly AstNode[] statements;
-        readonly Param[] parameters;
+        readonly Param[] parameters = new Param[0];
 
         public FuncDef(Location loc, List<AstNode> nodes) : base(loc) {
             return_type = ((Identifier)nodes[0]).content;
             name = ((Identifier)nodes[1]).content;
-            parameters = ((Parameters)nodes[2]).parameters;
-            statements = ((Multiple<AstNode>)nodes[4]).ToArray();
+            if (nodes[3] != null) {
+                parameters = ((AstNode.Multiple<AstNode.Param>)nodes[3]).ToArray();
+            }
+            statements = ((Multiple<AstNode>)nodes[6]).ToArray();
         }
 
         public override void CreateNameInfo(Scope scope) {
