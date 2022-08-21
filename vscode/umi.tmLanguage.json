@@ -4,6 +4,7 @@
     "patterns": [
         { "include": "#comments" },
         { "include": "#keywords" },
+        { "include": "#booleans" },
         { "include": "#strings" },
         { "include": "#numbers" },
         { "include": "#operators" }
@@ -18,6 +19,10 @@
             "name": "keyword.other",
             "match": "\\b(il)\\b"
         },
+        "booleans": {
+            "name": "constant.language.boolean",
+            "match": "\\b(true|false)\\b"
+        },
         "strings": {
             "name": "string.quoted.double",
             "begin": "\"",
@@ -30,7 +35,7 @@
         },
         "operators": {
             "name": "keyword.operator",
-            "match": "[=+\\-*\\/%]+"
+            "match": "[=+\\-*\\/%|&]+"
         }
     },
     "scopeName": "source.umi"

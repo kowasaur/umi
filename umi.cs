@@ -55,6 +55,7 @@ class Token {
         OPERATOR,
         STRING,
         INTEGER,
+        BOOLEAN,
         LPARAN,
         RPARAN,
         LCURLY,
@@ -101,7 +102,7 @@ class Lexer {
 
     string ConsumeWhile(char start, ContinueConsuming cc) => start.ToString() + ConsumeWhile(cc);
     
-    static bool IsOperatorChar(char c) => "+-*/%".Contains(c);
+    static bool IsOperatorChar(char c) => "+-*/%&|".Contains(c);
     
     public List<Token> Lex() {
         List<Token> tokens = new List<Token>();
@@ -116,11 +117,22 @@ class Lexer {
                 if (c == '\n') type = Token.Type.NEWLINE;
             } else if (Char.IsLetter(c) || c  == '_') {
                 string content = ConsumeWhile(c, ch => Char.IsLetterOrDigit(ch) || ch == '_');
-                if (content == "il") {
-                    type = Token.Type.IL;
-                } else {
-                    type = Token.Type.IDENTIFIER;
-                    value = content;
+                switch (content) {
+                    case "il":
+                        type = Token.Type.IL;
+                        break;
+                    case "true":
+                        type = Token.Type.BOOLEAN;
+                        value = "1";
+                        break;
+                    case "false":
+                        type = Token.Type.BOOLEAN;
+                        value = "0";
+                        break;
+                    default:
+                        type = Token.Type.IDENTIFIER;
+                        value = content;
+                        break;
                 }
             } else if (Char.IsDigit(c)) {
                 type = Token.Type.INTEGER;
@@ -310,6 +322,9 @@ abstract class Grammar {
         var INTEGER = new Pattern("INTEGER", new Grammar[] {new Tok(Token.Type.INTEGER)}, 
             (_, nodes) => new AstNode.IntegerLiteral((AstNode.Tok)nodes[0])
         );
+        var BOOLEAN = new Pattern("BOOLEAN", new Grammar[] {new Tok(Token.Type.BOOLEAN)},
+            (_, nodes) => new AstNode.BooleanLiteral((AstNode.Tok)nodes[0])
+        );
         var IDENTIFIER = new Pattern("IDENTIFIER", new Grammar[] {new Tok(Token.Type.IDENTIFIER)}, 
             (_, nodes) => new AstNode.Identifier((AstNode.Tok)nodes[0])
         );
@@ -322,7 +337,7 @@ abstract class Grammar {
         );
 
         // A single term in an expresion
-        var TERM = OneOf("TERM", new Grammar[] {STRING, INTEGER, null, IDENTIFIER, SUBEXPRESSION});
+        var TERM = OneOf("TERM", new Grammar[] {STRING, INTEGER, BOOLEAN, null, IDENTIFIER, SUBEXPRESSION});
 
         // Expression Part
         var EXP_PART = new Pattern("EXP_PART", new Grammar[][] {
@@ -354,7 +369,7 @@ abstract class Grammar {
             var args = nodes[2] == null ? new AstNode[0] : ((AstNode.Multiple<AstNode>)nodes[2]).ToArray();
             return new AstNode.FuncCall(loc, name, args);
         });
-        TERM.possible_patterns[2][0] = FUNC_CALL;
+        TERM.possible_patterns[3][0] = FUNC_CALL;
 
         var VAR_ASSIGN = new Pattern("VAR_ASSIGN", new Grammar[] {IDENTIFIER, EQUAL, EXPRESSION}, (loc, nodes) => {
             string name = ((AstNode.Identifier)nodes[0]).content;
@@ -465,6 +480,11 @@ class AstNode {
         public IntegerLiteral(Tok tok): base(tok) {}
         protected override string Type(Scope _) => "int32";
         public override void GenIl(Scope _) => Output.WriteLine($"ldc.i4 {content}");
+    }
+
+    public class BooleanLiteral : IntegerLiteral {
+        public BooleanLiteral(Tok tok): base(tok) {}
+        protected override string Type(Scope _) => "bool";
     }
 
     public class Identifier : Value {
