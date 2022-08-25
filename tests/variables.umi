@@ -1,6 +1,5 @@
 il void print(string) "call void [mscorlib]System.Console::WriteLine(string)"
-# TODO: make this an overload of print
-il void printn(int32) "call void [mscorlib]System.Console::WriteLine(int32)"
+il void print(int32) "call void [mscorlib]System.Console::WriteLine(int32)"
 
 void main() {
     string message = "hello!"
@@ -8,8 +7,8 @@ void main() {
 
     int32 number = 32
     int32 number_2 = number
-    printn(number)
-    printn(number_2)
+    print(number)
+    print(number_2)
 
     message = "goodbye :("
     print(message)

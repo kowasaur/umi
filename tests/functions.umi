@@ -1,6 +1,6 @@
 il void print(string) "call void [mscorlib]System.Console::WriteLine(string)"
+il void print(int32) "call void [mscorlib]System.Console::WriteLine(int32)"
 il void write(string) "call void [mscorlib]System.Console::Write(string)"
-il void printn(int32) "call void [mscorlib]System.Console::WriteLine(int32)"
 il string +(string, string) "call string string::Concat(string, string)"
 
 string createHello(string name) {
@@ -13,14 +13,15 @@ void greet(string name, int32 age) {
     write(message)
     message = " aged "
     write(message)
-    printn(age)
+    print(age)
 }
 
-void greetTim(int32 age) {
+# Example of function overloading
+void greet(int32 age) {
     greet("Tim", age)
 }
 
 void main() {
     greet("Joe", 3333)
-    greetTim(52)
+    greet(52)
 }

@@ -439,7 +439,7 @@ class AstNode {
         location = loc;
     }
 
-    protected virtual string Type(Scope scope) => throw new NotImplementedException();
+    public virtual string Type(Scope scope) => throw new NotImplementedException();
     public virtual void CreateNameInfo(Scope scope) => throw new NotImplementedException();
     public virtual void GenIl(Scope scope) => throw new NotImplementedException();
 
@@ -472,25 +472,25 @@ class AstNode {
 
     public class StringLiteral : Value {
         public StringLiteral(Tok tok): base(tok) {}
-        protected override string Type(Scope _) => "string";
+        public override string Type(Scope _) => "string";
         public override void GenIl(Scope _) => Output.WriteLine($"ldstr \"{content}\"");
     }
 
     public class IntegerLiteral : Value {
         public IntegerLiteral(Tok tok): base(tok) {}
-        protected override string Type(Scope _) => "int32";
+        public override string Type(Scope _) => "int32";
         public override void GenIl(Scope _) => Output.WriteLine($"ldc.i4 {content}");
     }
 
     public class BooleanLiteral : IntegerLiteral {
         public BooleanLiteral(Tok tok): base(tok) {}
-        protected override string Type(Scope _) => "bool";
+        public override string Type(Scope _) => "bool";
     }
 
     public class Identifier : Value {
         public Identifier(Tok tok): base(tok) {}
 
-        protected override string Type(Scope scope) => ((Name.Var)scope.LookUp(content, location)).type;
+        public override string Type(Scope scope) => ((Name.Var)scope.LookUp(content, location)).type;
 
         public override void GenIl(Scope scope) {
             Name.Var variable = (Name.Var)scope.LookUp(content, location);
@@ -519,23 +519,22 @@ class AstNode {
             arguments = args;
         }
 
-        public override void GenIl(Scope scope) {
+        FuncInfo GetFuncInfo(Scope scope) {
             Name.Func func = (Name.Func)scope.LookUp(name, location);
-            string[] expected_types = func.param_types;
-            if (expected_types.Length != arguments.Length) {
-                Umi.Crash("Incorrect number of arguments", location);
-            }
-            for (int i = 0; i < arguments.Length; i++) {
-                AstNode arg = arguments[i];
-                arg.ExpectType(expected_types[i], scope);
-                arg.GenIl(scope);
-            }
-            func.GenIl(name);
+            string[] arg_types = Array.ConvertAll(arguments, arg => arg.Type(scope));
+
+            FuncInfo func_info = func.BestFit(arg_types);
+            if (func_info == null) Umi.Crash("Matching overload does not exist", location);
+
+            return func_info;
         }
 
-        protected override string Type(Scope scope) {
-            Name.Func func = (Name.Func)scope.LookUp(name, location);
-            return func.return_type;
+        public override string Type(Scope scope) => GetFuncInfo(scope).return_type;
+
+        public override void GenIl(Scope scope) {
+            FuncInfo func_info = GetFuncInfo(scope);
+            foreach (var arg in arguments) arg.GenIl(scope);
+            func_info.GenIl();
         }
     }
     
@@ -588,13 +587,14 @@ class AstNode {
         }
 
         public override void CreateNameInfo(Scope scope) {
-            var func = new Name.OrdFunc(location, Array.ConvertAll(parameters, p => p.type), return_type, scope);
-            scope.Add(name, func);
-            
+            string[] types = Array.ConvertAll(parameters, p => p.type);
+            FuncInfo.Ord func_info = new FuncInfo.Ord(types, scope, name, return_type);
+            scope.AddFunction(location, name, func_info);
+               
             for (int i = 0; i < parameters.Length; i++) {
                 Param p = parameters[i];
                 var par = new Name.Var(p.type, p.name, true, i, p.location);
-                func.local_variables.Add(p.name, par);
+                func_info.local_variables.Add(p.name, par);
             }
 
             var vardefs = Array.FindAll(statements, s => s is AstNode.VarDef);
@@ -602,19 +602,21 @@ class AstNode {
                 var vardef = (AstNode.VarDef)vardefs[i];
                 var name = vardef.assignment.name;
                 var variable = new Name.Var(vardef.type, name, false, i, vardef.location);
-                func.local_variables.Add(name, variable);
+                func_info.local_variables.Add(name, variable);
             }
         }
 
         public override void GenIl(Scope scope) {
-            string param = String.Join(", ", Array.ConvertAll(parameters, p => p.type));
-            Output.WriteLine($".method static {return_type} {name}({param})");
+            string[] param_types = Array.ConvertAll(parameters, p => p.type);
+            Output.WriteLine($".method static {return_type} {name}({String.Join(", ", param_types)})");
             Output.WriteLine("{");
             Output.Indent();
             if (name == "main") Output.WriteLine(".entrypoint");
             
-            Name.OrdFunc func = (Name.OrdFunc)scope.LookUp(name, location);
-            var all_scope_vars = func.local_variables.names.Values.Cast<Name.Var>().ToArray();
+            Name.Func func = (Name.Func)scope.LookUp(name, location);
+            FuncInfo.Ord func_info = (FuncInfo.Ord)func.BestFit(param_types);
+
+            var all_scope_vars = func_info.local_variables.names.Values.Cast<Name.Var>().ToArray();
             var local_vars = Array.FindAll(all_scope_vars, v => !v.is_param);
             if (local_vars.Length > 0) {
                 Array.Sort(local_vars, (x, y) => x.index.CompareTo(y.index));
@@ -630,7 +632,7 @@ class AstNode {
                 Output.WriteLine(")");
             }
             
-            foreach (var statement in statements) statement.GenIl(func.local_variables);
+            foreach (var statement in statements) statement.GenIl(func_info.local_variables);
 
             Output.WriteLine("ret");
             Output.Unindent();
@@ -652,7 +654,7 @@ class AstNode {
         }
 
         public override void CreateNameInfo(Scope scope) {
-            scope.Add(name, new Name.IlFunc(location, param_types, return_type, il));
+            scope.AddFunction(location, name, new FuncInfo.Il(param_types, return_type, il));
         }
 
         public override void GenIl(Scope _) {}
@@ -693,32 +695,22 @@ abstract class Name {
 
     Name(Location defined_at) => this.defined_at = defined_at;
 
-    public abstract class Func : Name {
-        // TODO: allow function overloading
-        public readonly string[] param_types;
-        public readonly string return_type;
-        public Func(Location defined_at, string[] param_types, string rt) : base(defined_at) {
-            this.param_types = param_types;
-            return_type = rt;
-        }
-        public abstract void GenIl(string name);
-    }
+    public class Func : Name {
+        // The various definitions for the different overloads
+        public readonly List<FuncInfo> functions = new List<FuncInfo>();
+        public Func(Location defined_at) : base(defined_at) {}
 
-    // Ordinary function (as opposed to IL function)
-    public class OrdFunc : Func {
-        public readonly Scope local_variables;
-        public OrdFunc(Location loc, string[] types, string rt, Scope parent) : base(loc, types, rt) {
-            local_variables = new Scope(parent);
+        // Get the FuncInfo that fits the types the best
+        // Currently this means that it's exactly correct
+        // Returns null if nothing matches
+        public FuncInfo BestFit(string[] types) {
+            foreach (var func_info in functions) {
+                if (Enumerable.SequenceEqual(func_info.param_types, types)) {
+                    return func_info;
+                }
+            }
+            return null;
         }
-        public override void GenIl(string name) {
-            Output.WriteLine($"call {return_type} {name}({String.Join(", ", param_types)})");
-        }
-    }
-
-    public class IlFunc : Func {
-        string il;
-        public IlFunc(Location loc, string[] types, string rt, string il) : base(loc, types, rt) => this.il = il;
-        public override void GenIl(string _) => Output.WriteLine(il);
     }
 
     public class Var : Name {
@@ -734,6 +726,37 @@ abstract class Name {
         }
     }
 
+}
+
+abstract class FuncInfo {
+    public readonly string[] param_types;
+    public readonly string return_type;
+
+    public FuncInfo(string[] param_types, string return_type) {
+        this.param_types = param_types;
+        this.return_type = return_type;
+    }
+
+    public abstract void GenIl();
+
+    // Ordinary function (as opposed to IL function)
+    public class Ord : FuncInfo {
+        public readonly Scope local_variables;
+        readonly string name;
+        public Ord(string[] types, Scope parent, string name, string rt) : base(types, rt) {
+            local_variables = new Scope(parent);
+            this.name = name;
+        }
+        public override void GenIl() {
+            Output.WriteLine($"call {return_type} {name}({String.Join(", ", param_types)})");
+        }
+    }
+
+    public class Il : FuncInfo {
+        string il;
+        public Il(string[] types, string rt, string il) : base(types, rt) => this.il = il;
+        public override void GenIl() => Output.WriteLine(il);
+    }
 }
 
 class Scope {
@@ -755,6 +778,18 @@ class Scope {
         }
     }
 
+    public void AddFunction(Location location, string name, FuncInfo func_info) {
+        Name.Func func;
+        if (names.TryGetValue(name, out Name possibly_func)) {
+            // TODO: handle error properly
+            func = (Name.Func)possibly_func;
+        } else {
+            func = new Name.Func(location);
+            Add(name, func);
+        }
+        // TODO: check the overload doesn't already exist
+        func.functions.Add(func_info);
+    }
 }
 
 class Umi {

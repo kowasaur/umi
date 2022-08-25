@@ -4,14 +4,32 @@ Note that the .expected files are the expected output of the corresponding .umi 
 
 ## Features
 
+-   Strong static typing
 -   Implicit return
+-   Function overloading
+
+### Planned
+
+-   `if` and `else` statements
+-   `while` loops
+-   Explicit return
+-   Classes
+-   Constants or maybe aliases
+-   `for` `in` loop
+-   Creating range array with `...`
+    -   E.g. `0...10`
+-   Shorthand syntax for il functions
+-   String interpolation
+-   Immutability by default
+    -   Immutable references like `final`
+    -   Make variable mutable with `mut` keyword
 
 ## Goals
 
--   [x] Compiles to [CIL](https://en.wikipedia.org/wiki/Common_Intermediate_Language) (extremely limited currently)
+-   [x] Compiles to [CIL](https://en.wikipedia.org/wiki/Common_Intermediate_Language)
 -   [ ] Turing Complete
--   [ ] VSCode Extension
--   [ ] Interoperability with C#
 -   [ ] Self-hosted
 -   [ ] Published on the AUR
--   [ ] Make Pong
+-   [ ] Pong
+-   [ ] VSCode extension with auto-complete, etc
+-   [ ] Interoperability with C#
