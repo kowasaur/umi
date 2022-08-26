@@ -24,6 +24,7 @@ class Location {
     public Location Copy() => new Location(line, column);
     
     public override string ToString() => $"{line}:{column}";
+    public string Label() => $"L{line}C{column}";
 
     public static bool operator >(Location a, Location b) {
         if (a.line != b.line) return a.line > b.line;
@@ -63,7 +64,9 @@ class Token {
         NEWLINE,
         COMMA,
         EQUAL,
-        IL
+        IL,
+        IF,
+        ELSE
     }
 
 }
@@ -102,7 +105,7 @@ class Lexer {
 
     string ConsumeWhile(char start, ContinueConsuming cc) => start.ToString() + ConsumeWhile(cc);
     
-    static bool IsOperatorChar(char c) => "+-*/%&|".Contains(c);
+    static bool IsOperatorChar(char c) => "+-*/%&|=><!".Contains(c);
     
     public List<Token> Lex() {
         List<Token> tokens = new List<Token>();
@@ -129,6 +132,12 @@ class Lexer {
                         type = Token.Type.BOOLEAN;
                         value = "0";
                         break;
+                    case "if":
+                        type = Token.Type.IF;
+                        break;
+                    case "else":
+                        type = Token.Type.ELSE;
+                        break;
                     default:
                         type = Token.Type.IDENTIFIER;
                         value = content;
@@ -138,8 +147,13 @@ class Lexer {
                 type = Token.Type.INTEGER;
                 value = ConsumeWhile(c, Char.IsDigit);
             } else if (IsOperatorChar(c)) {
-                type = Token.Type.OPERATOR;
-                value = ConsumeWhile(c, IsOperatorChar);
+                string content = ConsumeWhile(c, IsOperatorChar);
+                if (content == "=") {
+                    type = Token.Type.EQUAL;
+                } else {
+                    type = Token.Type.OPERATOR;
+                    value = content;
+                }
             } else switch (c) {
                 case '(':
                     type = Token.Type.LPARAN;
@@ -152,9 +166,6 @@ class Lexer {
                     break;
                 case '}':
                     type = Token.Type.RCURLY;
-                    break;
-                case '=':
-                    type = Token.Type.EQUAL;
                     break;
                 case ',':
                     type = Token.Type.COMMA;
@@ -315,6 +326,7 @@ abstract class Grammar {
         var COMMA = new Tok(Token.Type.COMMA);
         var EQUAL = new Tok(Token.Type.EQUAL);
         var IL = new Tok(Token.Type.IL);
+        var IF = new Tok(Token.Type.IF);
 
         var STRING = new Pattern("STRING", new Grammar[] {new Tok(Token.Type.STRING)}, 
             (_, nodes) => new AstNode.StringLiteral((AstNode.Tok)nodes[0])
@@ -381,7 +393,13 @@ abstract class Grammar {
             return new AstNode.VarDef(loc, type, (AstNode.VarAssign)nodes[1]);
         });
 
-        var LOCAL_STATEMENTS = NewStatements("LOCAL", new Grammar[] {VAR_DEF, VAR_ASSIGN, EXPRESSION});
+        var IF_STMT = new Pattern("IF_STMT", new Grammar[] {IF, EXPRESSION, null}, (loc, nodes) => {
+            return new AstNode.If(loc, nodes[1], ((AstNode.Multiple<AstNode>)nodes[2]).ToArray());
+        });
+
+        var LOCAL_STMTS = NewStatements("LOCAL", new Grammar[] {VAR_DEF, VAR_ASSIGN, EXPRESSION, IF_STMT});
+        var LOCAL_BLOCK = new Pattern("LOCAL_BLOCK", new Grammar[] {LCURLY, LOCAL_STMTS, RCURLY}, (_, nodes) => nodes[1]);
+        IF_STMT.possible_patterns[0][2] = LOCAL_BLOCK;
 
         // function definition identifier
         var FUNC_IDEN = OneOf("FUNC_IDEN", new Grammar[] {IDENTIFIER, OPERATOR});
@@ -391,7 +409,7 @@ abstract class Grammar {
         );
         var PARAM_LIST = Multiple<AstNode.Param>("PARAM_LIST", new Grammar[] {PARAM, COMMA}, optional: true);
         var FUNC_DEF = new Pattern("FUNC_DEF", 
-            new Grammar[] {IDENTIFIER, FUNC_IDEN, LPARAN, PARAM_LIST, RPARAN, LCURLY, LOCAL_STATEMENTS, RCURLY},
+            new Grammar[] {IDENTIFIER, FUNC_IDEN, LPARAN, PARAM_LIST, RPARAN, LOCAL_BLOCK},
             (loc, nodes) => new AstNode.FuncDef(loc, nodes)
         );
 
@@ -559,6 +577,28 @@ class AstNode {
         }
     }
     
+    public class If : AstNode {
+        readonly AstNode condition;
+        readonly AstNode[] statements;
+
+        public If(Location loc, AstNode condition, AstNode[] statements) : base(loc) {
+            this.condition = condition;
+            this.statements = statements;
+        }
+
+        public override void GenIl(Scope scope) {
+            // This is the first location of the last statement
+            // Idk if this will cause errors later
+            string end = statements.Last().location.Label();
+            condition.ExpectType("bool", scope);
+            condition.GenIl(scope);
+            Output.WriteLine($"brfalse {end}");
+            // TODO: have scope for the if statement itself
+            foreach (var stmt in statements) stmt.GenIl(scope);
+            Output.WriteLine($"{end}:");
+        }
+    }
+
     public class VarDef : AstNode {
         public readonly string type;
         public readonly VarAssign assignment;
@@ -583,7 +623,7 @@ class AstNode {
             if (nodes[3] != null) {
                 parameters = ((AstNode.Multiple<AstNode.Param>)nodes[3]).ToArray();
             }
-            statements = ((Multiple<AstNode>)nodes[6]).ToArray();
+            statements = ((Multiple<AstNode>)nodes[5]).ToArray();
         }
 
         public override void CreateNameInfo(Scope scope) {

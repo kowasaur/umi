@@ -10,19 +10,14 @@
         { "include": "#operators" }
     ],
     "repository": {
-        "comments": {
-            "name": "comment.line.number-sign",
-            "begin": "#",
-            "end": "\n"
-        },
+        "comments": { "name": "comment.line.number-sign", "begin": "#", "end": "\n" },
         "keywords": {
-            "name": "keyword.other",
-            "match": "\\b(il)\\b"
+            "patterns": [
+                { "name": "keyword.other", "match": "\\b(il)\\b" },
+                { "name": "keyword.control", "match": "\\b(if|else)\\b" }
+            ]
         },
-        "booleans": {
-            "name": "constant.language.boolean",
-            "match": "\\b(true|false)\\b"
-        },
+        "booleans": { "name": "constant.language.boolean", "match": "\\b(true|false)\\b" },
         "strings": {
             "name": "string.quoted.double",
             "begin": "\"",
@@ -35,7 +30,7 @@
         },
         "operators": {
             "name": "keyword.operator",
-            "match": "[=+\\-*\\/%|&]+"
+            "match": "[=+\\-*\\/%|&><!]+"
         }
     },
     "scopeName": "source.umi"

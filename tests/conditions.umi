@@ -1,0 +1,14 @@
+il void print(string) "call void [mscorlib]System.Console::WriteLine(string)"
+il bool ==(string, string) "ceq"
+
+void main() {
+    string variable = "unmodified"
+    if true {
+        variable = "modified"
+        print("this should print")
+    }
+    print(variable)
+
+    if variable == "modified" { print("this should also print") }
+    if variable == "unmodified" { print("this shouldn't print") }
+}
