@@ -1,5 +1,6 @@
 il void print(string) "call void [mscorlib]System.Console::WriteLine(string)"
 il bool ==(string, string) "ceq"
+il bool >(int32, int32) "cgt"
 
 void main() {
     string variable = "unmodified"
@@ -11,4 +12,10 @@ void main() {
 
     if variable == "modified" { print("this should also print") }
     if variable == "unmodified" { print("this shouldn't print") }
+
+    if 5 > 123 {
+        print("maths is broken")
+    } else {
+        print("maths makes sense")
+    }
 }

@@ -318,6 +318,8 @@ abstract class Grammar {
         return new Pattern(name + "S+NL", new Grammar[] {ONL, statements, ONL}, (_, nodes) => nodes[1]);
     }
 
+    static AstNode[] MultiArray(List<AstNode> nodes, int i) => ((AstNode.Multiple<AstNode>)nodes[i]).ToArray();
+    
     static Pattern CreateProgramGrammar() {
         var LPARAN = new Tok(Token.Type.LPARAN);
         var RPARAN = new Tok(Token.Type.RPARAN);
@@ -327,6 +329,7 @@ abstract class Grammar {
         var EQUAL = new Tok(Token.Type.EQUAL);
         var IL = new Tok(Token.Type.IL);
         var IF = new Tok(Token.Type.IF);
+        var ELSE = new Tok(Token.Type.ELSE);
 
         var STRING = new Pattern("STRING", new Grammar[] {new Tok(Token.Type.STRING)}, 
             (_, nodes) => new AstNode.StringLiteral((AstNode.Tok)nodes[0])
@@ -365,7 +368,7 @@ abstract class Grammar {
         EXP_PART.possible_patterns[0][2] = EXP_PART;
 
         var EXPRESSION = new Pattern("EXPRESSION", new Grammar[] {EXP_PART}, (loc, nodes) => {
-            var parts = ((AstNode.Multiple<AstNode>)nodes[0]).ToArray();
+            AstNode[] parts = MultiArray(nodes, 0);
 
             if (parts.Length == 1) return parts[0];
             // TODO: allow arbitrarily long expressions
@@ -378,7 +381,7 @@ abstract class Grammar {
         var ARGUMENTS = Multiple<AstNode>("ARGUMENTS", new Grammar[] {EXPRESSION, COMMA}, optional: true);
         var FUNC_CALL = new Pattern("FUNC_CALL", new Grammar[] {IDENTIFIER, LPARAN, ARGUMENTS, RPARAN}, (loc, nodes) => {
             string name = ((AstNode.Identifier)nodes[0]).content;
-            var args = nodes[2] == null ? new AstNode[0] : ((AstNode.Multiple<AstNode>)nodes[2]).ToArray();
+            AstNode[] args = nodes[2] == null ? new AstNode[0] : MultiArray(nodes, 2);
             return new AstNode.FuncCall(loc, name, args);
         });
         TERM.possible_patterns[3][0] = FUNC_CALL;
@@ -393,13 +396,17 @@ abstract class Grammar {
             return new AstNode.VarDef(loc, type, (AstNode.VarAssign)nodes[1]);
         });
 
-        var IF_STMT = new Pattern("IF_STMT", new Grammar[] {IF, EXPRESSION, null}, (loc, nodes) => {
-            return new AstNode.If(loc, nodes[1], ((AstNode.Multiple<AstNode>)nodes[2]).ToArray());
+        var ELSE_PART = new Pattern("ELSE", new Grammar[] {ELSE, null}, (_, nodes) => nodes[1], optional: true);
+        var IF_STMT = new Pattern("IF_STMT", new Grammar[] {IF, EXPRESSION, null, ELSE_PART}, (loc, nodes) => {
+            AstNode[] if_stmts = MultiArray(nodes, 2);
+            if (nodes[3] == null) return new AstNode.If(loc, nodes[1], if_stmts);
+            return new AstNode.IfElse(loc, nodes[1], if_stmts, MultiArray(nodes, 3));
         });
 
         var LOCAL_STMTS = NewStatements("LOCAL", new Grammar[] {VAR_DEF, VAR_ASSIGN, EXPRESSION, IF_STMT});
         var LOCAL_BLOCK = new Pattern("LOCAL_BLOCK", new Grammar[] {LCURLY, LOCAL_STMTS, RCURLY}, (_, nodes) => nodes[1]);
         IF_STMT.possible_patterns[0][2] = LOCAL_BLOCK;
+        ELSE_PART.possible_patterns[0][1] = LOCAL_BLOCK;
 
         // function definition identifier
         var FUNC_IDEN = OneOf("FUNC_IDEN", new Grammar[] {IDENTIFIER, OPERATOR});
@@ -444,7 +451,7 @@ abstract class Grammar {
         if (ast == null || i != tokens.Count) {
             Umi.Crash($"Expected `{furthest_expected}` but found `{furthest_got.type}`", furthest_got.location);
         }
-        return new AstNode.Program(((AstNode.Multiple<AstNode>)ast[0]).ToArray());
+        return new AstNode.Program(MultiArray(ast, 0));
     }
 
 }
@@ -586,16 +593,39 @@ class AstNode {
             this.statements = statements;
         }
 
-        public override void GenIl(Scope scope) {
-            // This is the first location of the last statement
-            // Idk if this will cause errors later
-            string end = statements.Last().location.Label();
+        // The stuff that's common in If and IfElse and return the if_end label
+        protected string IfIl(Scope scope) {
             condition.ExpectType("bool", scope);
             condition.GenIl(scope);
-            Output.WriteLine($"brfalse {end}");
-            // TODO: have scope for the if statement itself
+            // This is the first location of the last statement
+            // Idk if this will cause errors later
+            string if_end = statements.Last().location.Label();
+            Output.WriteLine($"brfalse {if_end}");
             foreach (var stmt in statements) stmt.GenIl(scope);
+            return if_end;
+        }
+
+        // TODO: have scope for the if statement itself
+        public override void GenIl(Scope scope) {
+            string end = IfIl(scope);
             Output.WriteLine($"{end}:");
+        }
+    }
+
+    public class IfElse : If {
+        readonly AstNode[] else_statements;
+
+        public IfElse(Location loc, AstNode cond, AstNode[] if_stmts, AstNode[] else_stmts) : base(loc, cond, if_stmts) {
+            else_statements = else_stmts;
+        }
+
+        public override void GenIl(Scope scope) {
+            string if_end = IfIl(scope);
+            string else_end = else_statements.Last().location.Label();
+            Output.WriteLine($"br {else_end}");
+            Output.WriteLine($"{if_end}:");
+            foreach (var stmt in else_statements) stmt.GenIl(scope);
+            Output.WriteLine($"{else_end}:");
         }
     }
 

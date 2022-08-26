@@ -1,0 +1,19 @@
+il void print(int32) "call void [mscorlib]System.Console::WriteLine(int32)"
+il bool ==(int32, int32) "ceq"
+il int32 -(int32, int32) "sub"
+il int32 *(int32, int32) "mul"
+
+int32 factorial(int32 n) {
+    if n == 0 { 1 } else { n * factorial(n - 1) }
+}
+
+void main() {
+    print(factorial(0))  #         1
+    print(factorial(1))  #         1
+    print(factorial(2))  #         2
+    print(factorial(3))  #         6
+    print(factorial(4))  #        24
+    print(factorial(5))  #       120
+    print(factorial(10)) #   3628800
+    print(factorial(12)) # 479001600
+}
