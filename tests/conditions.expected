@@ -1,4 +1,5 @@
 this should print
+this is block scoped
 modified
 this should also print
 maths makes sense

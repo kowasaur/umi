@@ -592,13 +592,45 @@ class AstNode {
         }
     }
     
-    public class If : AstNode {
-        readonly AstNode condition;
-        readonly AstNode[] statements;
+    public abstract class Block : AstNode {
+        protected readonly AstNode[] statements;
+        protected Scope block_scope;
+        public Block(Location loc, AstNode[] statements) : base(loc) => this.statements = statements;
 
-        public If(Location loc, AstNode condition, AstNode[] statements) : base(loc) {
+        // This mainly exists as a separate function for IfElse
+        protected static Scope SubScope(Scope scope, List<string> local_var_types, AstNode[] stmts) {
+            var new_scope = new Scope(scope);
+            foreach (var stmt in stmts) {
+                if (stmt is AstNode.VarDef) {
+                    var vardef = (AstNode.VarDef)stmt;
+                    string name = vardef.assignment.name;
+                    int i = local_var_types.Count;
+                    var variable = new Name.Var(vardef.type, name, false, i, vardef.location);
+                    local_var_types.Add(variable.type);
+                    new_scope.Add(name, variable);
+                } else if (stmt is AstNode.Block) {
+                    ((AstNode.Block)stmt).DeclareVariables(new_scope, local_var_types);
+                }
+            }
+            return new_scope;
+        }
+
+        protected virtual void DeclareVariables(Scope scope, List<string> local_var_types) {
+            block_scope = SubScope(scope, local_var_types, statements);
+        }
+
+        protected static void GenStatements(AstNode[] stmts, Scope scope) {
+            foreach (var statement in stmts) statement.GenIl(scope);
+        }
+
+        protected void GenStatements() => GenStatements(statements, block_scope);
+    }
+
+    public class If : Block {
+        readonly AstNode condition;
+
+        public If(Location loc, AstNode condition, AstNode[] statements) : base(loc, statements) {
             this.condition = condition;
-            this.statements = statements;
         }
 
         // The stuff that's common in If and IfElse and return the if_end label
@@ -609,11 +641,10 @@ class AstNode {
             // Idk if this will cause errors later
             string if_end = statements.Last().location.Label();
             Output.WriteLine($"brfalse {if_end}");
-            foreach (var stmt in statements) stmt.GenIl(scope);
+            GenStatements();
             return if_end;
         }
 
-        // TODO: have scope for the if statement itself
         public override void GenIl(Scope scope) {
             string end = IfIl(scope);
             Output.WriteLine($"{end}:");
@@ -622,9 +653,15 @@ class AstNode {
 
     public class IfElse : If {
         readonly AstNode[] else_statements;
+        Scope else_scope;
 
         public IfElse(Location loc, AstNode cond, AstNode[] if_stmts, AstNode[] else_stmts) : base(loc, cond, if_stmts) {
             else_statements = else_stmts;
+        }
+
+        protected override void DeclareVariables(Scope scope, List<string> local_var_types) {
+            base.DeclareVariables(scope, local_var_types);
+            else_scope = SubScope(scope, local_var_types, else_statements);
         }
 
         public override void GenIl(Scope scope) {
@@ -632,7 +669,7 @@ class AstNode {
             string else_end = else_statements.Last().location.Label();
             Output.WriteLine($"br {else_end}");
             Output.WriteLine($"{if_end}:");
-            foreach (var stmt in else_statements) stmt.GenIl(scope);
+            GenStatements(else_statements, else_scope);
             Output.WriteLine($"{else_end}:");
         }
     }
@@ -649,38 +686,32 @@ class AstNode {
         public override void GenIl(Scope scope) => assignment.GenIl(scope);
     }
 
-    public class FuncDef : AstNode {
-        public readonly string name;
+    public class FuncDef : Block {
+        readonly string name;
         readonly string return_type;
-        readonly AstNode[] statements;
         readonly Param[] parameters = new Param[0];
 
-        public FuncDef(Location loc, List<AstNode> nodes) : base(loc) {
+        readonly List<string> local_var_types = new List<string>();
+
+        public FuncDef(Location loc, List<AstNode> nodes) : base(loc, ((Multiple<AstNode>)nodes[5]).ToArray()) {
             return_type = ((Identifier)nodes[0]).content;
             name = ((Identifier)nodes[1]).content;
             if (nodes[3] != null) {
                 parameters = ((AstNode.Multiple<AstNode.Param>)nodes[3]).ToArray();
             }
-            statements = ((Multiple<AstNode>)nodes[5]).ToArray();
         }
 
         public override void CreateNameInfo(Scope scope) {
             string[] types = Array.ConvertAll(parameters, p => p.type);
-            FuncInfo.Ord func_info = new FuncInfo.Ord(types, scope, name, return_type);
+            FuncInfo.Ord func_info = new FuncInfo.Ord(types, name, return_type);
             scope.AddFunction(location, name, func_info);
-               
+
+            DeclareVariables(scope, local_var_types);
+
             for (int i = 0; i < parameters.Length; i++) {
                 Param p = parameters[i];
                 var par = new Name.Var(p.type, p.name, true, i, p.location);
-                func_info.local_variables.Add(p.name, par);
-            }
-
-            var vardefs = Array.FindAll(statements, s => s is AstNode.VarDef);
-            for (int i = 0; i < vardefs.Length; i++) {
-                var vardef = (AstNode.VarDef)vardefs[i];
-                var name = vardef.assignment.name;
-                var variable = new Name.Var(vardef.type, name, false, i, vardef.location);
-                func_info.local_variables.Add(name, variable);
+                block_scope.Add(p.name, par);
             }
         }
 
@@ -690,28 +721,21 @@ class AstNode {
             Output.WriteLine("{");
             Output.Indent();
             if (name == "main") Output.WriteLine(".entrypoint");
-            
-            Name.Func func = (Name.Func)scope.LookUp(name, location);
-            FuncInfo.Ord func_info = (FuncInfo.Ord)func.BestFit(param_types);
 
-            var all_scope_vars = func_info.local_variables.names.Values.Cast<Name.Var>().ToArray();
-            var local_vars = Array.FindAll(all_scope_vars, v => !v.is_param);
-            if (local_vars.Length > 0) {
-                Array.Sort(local_vars, (x, y) => x.index.CompareTo(y.index));
+            if (local_var_types.Count > 0) {
                 Output.WriteLine(".locals init (");
                 Output.Indent();
-                for (int i = 0; i < local_vars.Length - 1; i++) {
-                    Name.Var variable = local_vars[i];
-                    Output.WriteLine($"{variable.type} VAR_{variable.name},");
+                for (int i = 0; i < local_var_types.Count - 1; i++) {
+                    string type = local_var_types[i];
+                    Output.WriteLine($"{type} VAR_{i},");
                 }
-                Name.Var last_local = local_vars[local_vars.Length - 1];
-                Output.WriteLine($"{last_local.type} VAR_{last_local.name}");
+                string last_type = local_var_types.Last();
+                Output.WriteLine($"{last_type} VAR_{local_var_types.Count - 1}");
                 Output.Unindent();
                 Output.WriteLine(")");
             }
             
-            foreach (var statement in statements) statement.GenIl(func_info.local_variables);
-
+            GenStatements();
             Output.WriteLine("ret");
             Output.Unindent();
             Output.WriteLine("}\n");
@@ -819,12 +843,9 @@ abstract class FuncInfo {
 
     // Ordinary function (as opposed to IL function)
     public class Ord : FuncInfo {
-        public readonly Scope local_variables;
         readonly string name;
-        public Ord(string[] types, Scope parent, string name, string rt) : base(types, rt) {
-            local_variables = new Scope(parent);
-            this.name = name;
-        }
+        public Ord(string[] types, string name, string rt) : base(types, rt) => this.name = name;
+        
         public override void GenIl() {
             Output.WriteLine($"call {return_type} {name}({String.Join(", ", param_types)})");
         }

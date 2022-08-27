@@ -4,6 +4,12 @@ void main() {
         variable = "modified"
         print("this should print")
     }
+
+    if (1 == 1) & (2 == 2) {
+        string variable = "this is block scoped"
+        print(variable)
+    }
+
     print(variable)
 
     if variable == "modified" { print("this should also print") }
