@@ -7,10 +7,10 @@ Note that the .expected files are the expected output of the corresponding .umi 
 -   Strong static typing
 -   Implicit return
 -   Function overloading
+-   `if` and `else` statements
 
 ### Planned
 
--   `if` and `else` statements
 -   `while` loops
 -   Explicit return
 -   Classes

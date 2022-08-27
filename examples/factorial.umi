@@ -4,7 +4,8 @@ il int32 -(int32, int32) "sub"
 il int32 *(int32, int32) "mul"
 
 int32 factorial(int32 n) {
-    if n == 0 { 1 } else { n * factorial(n - 1) }
+    if n == 0 { 1 }
+    else { n * factorial(n - 1) }
 }
 
 void main() {

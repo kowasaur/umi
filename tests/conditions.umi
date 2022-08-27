@@ -15,7 +15,9 @@ void main() {
 
     if 5 > 123 {
         print("maths is broken")
-    } else {
+    } else if 10000 > 3 {
         print("maths makes sense")
+    } else {
+        print("maths is broken")
     }
 }

@@ -396,17 +396,23 @@ abstract class Grammar {
             return new AstNode.VarDef(loc, type, (AstNode.VarAssign)nodes[1]);
         });
 
-        var ELSE_PART = new Pattern("ELSE", new Grammar[] {ELSE, null}, (_, nodes) => nodes[1], optional: true);
+        var ELSE_PART = new Pattern("ELSE", new Grammar[][] {
+            new Grammar[] {ONL, ELSE, null}, new Grammar[] {ONL, ELSE, null}
+        }, (_, nodes) => nodes[2], optional: true);
         var IF_STMT = new Pattern("IF_STMT", new Grammar[] {IF, EXPRESSION, null, ELSE_PART}, (loc, nodes) => {
             AstNode[] if_stmts = MultiArray(nodes, 2);
             if (nodes[3] == null) return new AstNode.If(loc, nodes[1], if_stmts);
+            if (nodes[3] is AstNode.If || nodes[3] is AstNode.IfElse) {
+                return new AstNode.IfElse(loc, nodes[1], if_stmts, new AstNode[] {nodes[3]});
+            }
             return new AstNode.IfElse(loc, nodes[1], if_stmts, MultiArray(nodes, 3));
         });
+        ELSE_PART.possible_patterns[1][2] = IF_STMT;
 
         var LOCAL_STMTS = NewStatements("LOCAL", new Grammar[] {VAR_DEF, VAR_ASSIGN, EXPRESSION, IF_STMT});
         var LOCAL_BLOCK = new Pattern("LOCAL_BLOCK", new Grammar[] {LCURLY, LOCAL_STMTS, RCURLY}, (_, nodes) => nodes[1]);
         IF_STMT.possible_patterns[0][2] = LOCAL_BLOCK;
-        ELSE_PART.possible_patterns[0][1] = LOCAL_BLOCK;
+        ELSE_PART.possible_patterns[0][2] = LOCAL_BLOCK;
 
         // function definition identifier
         var FUNC_IDEN = OneOf("FUNC_IDEN", new Grammar[] {IDENTIFIER, OPERATOR});
