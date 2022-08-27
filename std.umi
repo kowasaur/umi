@@ -1,0 +1,26 @@
+# This is the standard library, included by default in all umi programs
+
+il void print(string) "call void [mscorlib]System.Console::WriteLine(string)"
+il void print(int32) "call void [mscorlib]System.Console::WriteLine(int32)"
+il void print(bool) "call void [mscorlib]System.Console::WriteLine(bool)"
+
+il string +(string, string) "call string string::Concat(string, string)"
+
+# Arithmetic Operators
+il int32 +(int32, int32) "add"
+il int32 -(int32, int32) "sub"
+il int32 *(int32, int32) "mul"
+il int32 /(int32, int32) "div"
+il int32 %(int32, int32) "rem"
+
+# Comparison Operators
+il bool ==(string, string) "ceq"
+il bool ==(int32, int32) "ceq"
+il bool >(int32, int32) "cgt"
+il bool <(int32, int32) "clt"
+
+# Logical Operators
+# Since these operations are bitwise, I'm thinking to 
+# use the same symbols for booleans and integers
+il bool &(bool, bool) "and"
+il bool |(bool, bool) "or"

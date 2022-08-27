@@ -1,6 +1,3 @@
-il void print(string) "call void [mscorlib]System.Console::WriteLine(string)"
-il void print(int32) "call void [mscorlib]System.Console::WriteLine(int32)"
-
 void main() {
     string message = "hello!"
     print(message)

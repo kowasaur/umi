@@ -1,10 +1,3 @@
-il void print(int32) "call void [mscorlib]System.Console::WriteLine(int32)"
-il int32 +(int32, int32) "add"
-il int32 -(int32, int32) "sub"
-il int32 *(int32, int32) "mul"
-il int32 /(int32, int32) "div"
-il int32 %(int32, int32) "rem"
-
 void main() {
     int32 plus = 9 + 10
     int32 minus = plus - 3

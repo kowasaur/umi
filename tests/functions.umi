@@ -1,7 +1,4 @@
-il void print(string) "call void [mscorlib]System.Console::WriteLine(string)"
-il void print(int32) "call void [mscorlib]System.Console::WriteLine(int32)"
 il void write(string) "call void [mscorlib]System.Console::Write(string)"
-il string +(string, string) "call string string::Concat(string, string)"
 
 string createHello(string name) {
     # Implicit return

@@ -1,8 +1,7 @@
-il void print(string) "call void [mscorlib]System.Console::Write(string)"
+il void write(string) "call void [mscorlib]System.Console::Write(string)"
 il string input() "call string class [mscorlib]System.Console::ReadLine()"
-il string +(string, string) "call string string::Concat(string, string)"
 
 void main() {
-    print("Enter name: ")
-    print(("Hello " + input()) + "!\n")
+    write("Enter name: ")
+    write(("Hello " + input()) + "!\n")
 }

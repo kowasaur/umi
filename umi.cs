@@ -8,10 +8,13 @@ class Location {
 
     uint line;
     uint column;
+    // ? Maybe a reference to the Lexer should be stored instead
+    readonly string file_path;
 
-    public Location(uint line, uint column) {
+    public Location(uint line, uint column, string file_path) {
         this.line = line;
         this.column = column;
+        this.file_path = file_path;
     }
 
     public void Increase(char new_char) {
@@ -21,9 +24,9 @@ class Location {
         } else column++;
     }
 
-    public Location Copy() => new Location(line, column);
+    public Location Copy() => new Location(line, column, file_path);
     
-    public override string ToString() => $"{line}:{column}";
+    public override string ToString() => $"{file_path}({line},{column})";
     public string Label() => $"L{line}C{column}";
 
     public static bool operator >(Location a, Location b) {
@@ -73,9 +76,9 @@ class Token {
 
 class Lexer {
     
-    string file;
+    readonly string file;
     int i = 0;
-    Location position = new Location(1, 1);
+    readonly Location position;
 
     delegate bool ContinueConsuming(char next);
 
@@ -87,6 +90,7 @@ class Lexer {
             Console.WriteLine(file_path + " does not exist");
             Environment.Exit(1);
         }
+        position = new Location(1, 1, file_path);
     }
     
     void Increment() {
@@ -107,9 +111,7 @@ class Lexer {
     
     static bool IsOperatorChar(char c) => "+-*/%&|=><!".Contains(c);
     
-    public List<Token> Lex() {
-        List<Token> tokens = new List<Token>();
-
+    public List<Token> Lex(List<Token> tokens) {
         while (i < file.Length) {
             char c = file[i];
             Token.Type type = Token.Type.NOTHING;
@@ -863,7 +865,14 @@ class Scope {
             func = new Name.Func(location);
             Add(name, func);
         }
-        // TODO: check the overload doesn't already exist
+
+        // Check that the overload doesn't already exist
+        foreach (var fi in func.functions) {
+            if (Enumerable.SequenceEqual(func_info.param_types, fi.param_types)) {
+                Umi.Crash($"This overload for `{name}` already exists", location);
+            }
+        }
+
         func.functions.Add(func_info);
     }
 }
@@ -881,8 +890,10 @@ class Umi {
             Environment.Exit(1);
         }
 
-        List<Token> tokens = new Lexer(args[0]).Lex();
+        List<Token> tokens = new Lexer("std.umi").Lex(new List<Token>());
+        tokens = new Lexer(args[0]).Lex(tokens);
         AstNode.Program ast = Grammar.ParseTokens(tokens);
+
         Scope global_namespace = new Scope(null);
         ast.CreateNameInfo(global_namespace);
         ast.GenIl(global_namespace);
