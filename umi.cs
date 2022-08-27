@@ -6,38 +6,24 @@ using System.Diagnostics;
 
 class Location {
 
-    uint line;
-    uint column;
+    readonly int index; // index in the tokens list
+    public readonly int line;
+    public readonly int column;
     // ? Maybe a reference to the Lexer should be stored instead
-    readonly string file_path;
+    public readonly string file_path;
 
-    public Location(uint line, uint column, string file_path) {
+    public Location(int line, int column, string file_path, int index) {
         this.line = line;
         this.column = column;
         this.file_path = file_path;
+        this.index = index;
     }
-
-    public void Increase(char new_char) {
-        if (new_char == '\n') {
-            column = 1;
-            line++;
-        } else column++;
-    }
-
-    public Location Copy() => new Location(line, column, file_path);
     
     public override string ToString() => $"{file_path}({line},{column})";
     public string Label() => $"L{line}C{column}";
 
-    public static bool operator >(Location a, Location b) {
-        if (a.line != b.line) return a.line > b.line;
-        return a.column > b.column;
-    }
-
-    public static bool operator <(Location a, Location b) {
-        if (a.line != b.line) return a.line < b.line;
-        return a.column < b.column;
-    }
+    public static bool operator >(Location a, Location b) => a.index > b.index;
+    public static bool operator <(Location a, Location b) => a.index < b.index;
 
 }
 
@@ -69,7 +55,8 @@ class Token {
         EQUAL,
         IL,
         IF,
-        ELSE
+        ELSE,
+        WHILE
     }
 
 }
@@ -77,8 +64,11 @@ class Token {
 class Lexer {
     
     readonly string file;
+    readonly string file_path;
+
     int i = 0;
-    readonly Location position;
+    int line = 1;
+    int column = 1;
 
     delegate bool ContinueConsuming(char next);
 
@@ -90,11 +80,14 @@ class Lexer {
             Console.WriteLine(file_path + " does not exist");
             Environment.Exit(1);
         }
-        position = new Location(1, 1, file_path);
+        this.file_path = file_path;
     }
     
     void Increment() {
-        position.Increase(file[i]);
+        if (file[i] == '\n') {
+            column = 1;
+            line++;
+        } else column++;
         i++;
     }
 
@@ -116,7 +109,7 @@ class Lexer {
             char c = file[i];
             Token.Type type = Token.Type.NOTHING;
             string value = null;
-            Location loc = position.Copy();
+            Location loc = new Location(line, column, file_path, tokens.Count);
 
             if (Char.IsWhiteSpace(c)) {
                 if (c == '\n') type = Token.Type.NEWLINE;
@@ -139,6 +132,9 @@ class Lexer {
                         break;
                     case "else":
                         type = Token.Type.ELSE;
+                        break;
+                    case "while":
+                        type = Token.Type.WHILE;
                         break;
                     default:
                         type = Token.Type.IDENTIFIER;
@@ -214,8 +210,8 @@ abstract class Grammar {
 
         protected override AstNode GenAst() {
             if (i == tokens.Count) {
-                var loc = tokens[i - 1].location.Copy();
-                loc.Increase(' '); // to move it to the non existent token
+                var last_loc = tokens[i - 1].location;
+                var loc = new Location(last_loc.line, last_loc.column + 1, last_loc.file_path, 999999999);
                 furthest_got = new Token(Token.Type.NOTHING, loc, null);
                 furthest_expected = token_type;
             } else if (tokens[i].type == token_type) {
