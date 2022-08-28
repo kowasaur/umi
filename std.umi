@@ -21,6 +21,7 @@ il int32 -(int32, int32) "sub"
 il int32 *(int32, int32) "mul"
 il int32 /(int32, int32) "div"
 il int32 %(int32, int32) "rem"
+il int32 -(void, int32) "neg"
 
 # Comparison Operators
 il bool ==(string, string) "call bool string::op_Equality(string, string)"

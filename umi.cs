@@ -352,9 +352,21 @@ abstract class Grammar {
         // A single term in an expresion
         var TERM = OneOf("TERM", new Grammar[] {STRING, INTEGER, BOOLEAN, null, IDENTIFIER, SUBEXPRESSION});
 
+        var POSTFIX = new Pattern("POSTFIX", new Grammar[] {TERM, OPERATOR}, (loc, nodes) => {
+            string name = ((AstNode.Identifier)nodes[1]).content;
+            return new AstNode.FuncCall(loc, name, new AstNode[] {nodes[0], new AstNode.Nothing()});
+        });
+        var PREFIX = new Pattern("PREFIX", new Grammar[] {OPERATOR, TERM}, (loc, nodes) => {
+            string name = ((AstNode.Identifier)nodes[0]).content;
+            return new AstNode.FuncCall(loc, name, new AstNode[] {new AstNode.Nothing(), nodes[1]});
+        });
+        var UNARY = OneOf("UNARY", new Grammar[] {POSTFIX, PREFIX});
+
         // Expression Part
         var EXP_PART = new Pattern("EXP_PART", new Grammar[][] {
+            new Grammar[] {UNARY, OPERATOR, null},
             new Grammar[] {TERM, OPERATOR, null},
+            new Grammar[] {UNARY},
             new Grammar[] {TERM}
         }, (_, nodes) => {
             if (nodes.Count == 1) return new AstNode.Multiple<AstNode>(nodes[0]);
@@ -364,6 +376,7 @@ abstract class Grammar {
             return values;
         });
         EXP_PART.possible_patterns[0][2] = EXP_PART;
+        EXP_PART.possible_patterns[1][2] = EXP_PART;
 
         var EXPRESSION = new Pattern("EXPRESSION", new Grammar[] {EXP_PART}, (loc, nodes) => {
             AstNode[] parts = MultiArray(nodes, 0);
@@ -498,6 +511,13 @@ class AstNode {
         }
     }
 
+    // For prefix and postfix operators
+    public class Nothing : AstNode {
+        public Nothing() : base(new Location(-1, -1, null, -1)) {}
+        public override string Type(Scope _) => "void";
+        public override void GenIl(Scope _) {}
+    }
+
     public abstract class Value : AstNode {
         public readonly string content;
         public Value(Tok tok) : base(tok.location) => content = tok.token.value;
@@ -557,7 +577,10 @@ class AstNode {
             string[] arg_types = Array.ConvertAll(arguments, arg => arg.Type(scope));
 
             FuncInfo func_info = func.BestFit(arg_types);
-            if (func_info == null) Umi.Crash("Matching overload does not exist", location);
+            if (func_info == null) {
+                string types = String.Join("`, `", arg_types);
+                Umi.Crash($"Overload with types `{types}` does not exist for `{name}`", location);
+            }
 
             return func_info;
         }

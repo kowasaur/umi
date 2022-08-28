@@ -8,10 +8,10 @@ Note that the .expected files are the expected output of the corresponding .umi 
 -   Implicit return
 -   Function overloading
 -   `if` and `else` statements
+-   `while` loops
 
 ### Planned
 
--   `while` loops
 -   Explicit return
 -   Classes
 -   Constants or maybe aliases
