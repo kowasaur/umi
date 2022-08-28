@@ -1,5 +1,3 @@
-il void write(string) "call void [mscorlib]System.Console::Write(string)"
-
 string createHello(string name) {
     # Implicit return
     "Hello, " + name
@@ -7,9 +5,9 @@ string createHello(string name) {
 
 void greet(string name, int32 age) {
     string message = createHello(name)
-    write(message)
+    consoleWrite(message)
     message = " aged "
-    write(message)
+    consoleWrite(message)
     print(age)
 }
 

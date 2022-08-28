@@ -1,0 +1,6 @@
+# https://esolangs.org/wiki/Truth-machine
+void main() {
+    string num = input()
+    while num == "1" { print(1) }
+    print(0)
+}

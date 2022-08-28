@@ -1,7 +1,3 @@
-il void write(string) "call void [mscorlib]System.Console::Write(string)"
-il string input() "call string class [mscorlib]System.Console::ReadLine()"
-
 void main() {
-    write("Enter name: ")
-    write(("Hello " + input()) + "!\n")
+    print(("Hello " + input("Enter name: ")) + "!")
 }

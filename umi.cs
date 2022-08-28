@@ -394,10 +394,12 @@ abstract class Grammar {
             return new AstNode.VarDef(loc, type, (AstNode.VarAssign)nodes[1]);
         });
 
+        var LOCAL_BLOCK = new Pattern("LOCAL_BLOCK", new Grammar[] {LCURLY, null, RCURLY}, (_, nodes) => nodes[1]);
+
         var ELSE_PART = new Pattern("ELSE", new Grammar[][] {
-            new Grammar[] {ONL, ELSE, null}, new Grammar[] {ONL, ELSE, null}
+            new Grammar[] {ONL, ELSE, LOCAL_BLOCK}, new Grammar[] {ONL, ELSE, null}
         }, (_, nodes) => nodes[2], optional: true);
-        var IF_STMT = new Pattern("IF_STMT", new Grammar[] {IF, EXPRESSION, null, ELSE_PART}, (loc, nodes) => {
+        var IF_STMT = new Pattern("IF_STMT", new Grammar[] {IF, EXPRESSION, LOCAL_BLOCK, ELSE_PART}, (loc, nodes) => {
             AstNode[] if_stmts = MultiArray(nodes, 2);
             if (nodes[3] == null) return new AstNode.If(loc, nodes[1], if_stmts);
             if (nodes[3] is AstNode.If || nodes[3] is AstNode.IfElse) {
@@ -407,10 +409,12 @@ abstract class Grammar {
         });
         ELSE_PART.possible_patterns[1][2] = IF_STMT;
 
-        var LOCAL_STMTS = NewStatements("LOCAL", new Grammar[] {VAR_DEF, VAR_ASSIGN, EXPRESSION, IF_STMT});
-        var LOCAL_BLOCK = new Pattern("LOCAL_BLOCK", new Grammar[] {LCURLY, LOCAL_STMTS, RCURLY}, (_, nodes) => nodes[1]);
-        IF_STMT.possible_patterns[0][2] = LOCAL_BLOCK;
-        ELSE_PART.possible_patterns[0][2] = LOCAL_BLOCK;
+        var WHILE = new Pattern("WHILE", new Grammar[] {new Tok(Token.Type.WHILE), EXPRESSION, LOCAL_BLOCK}, 
+            (loc, nodes) => new AstNode.While(loc, nodes[1], MultiArray(nodes, 2))
+        );
+
+        var LOCAL_STMTS = NewStatements("LOCAL", new Grammar[] {VAR_DEF, VAR_ASSIGN, EXPRESSION, IF_STMT, WHILE});
+        LOCAL_BLOCK.possible_patterns[0][1] = LOCAL_STMTS;
 
         // function definition identifier
         var FUNC_IDEN = OneOf("FUNC_IDEN", new Grammar[] {IDENTIFIER, OPERATOR});
@@ -623,7 +627,7 @@ class AstNode {
     }
 
     public class If : Block {
-        readonly AstNode condition;
+        protected readonly AstNode condition;
 
         public If(Location loc, AstNode condition, AstNode[] statements) : base(loc, statements) {
             this.condition = condition;
@@ -667,6 +671,18 @@ class AstNode {
             Output.WriteLine($"{if_end}:");
             GenStatements(else_statements, else_scope);
             Output.WriteLine($"{else_end}:");
+        }
+    }
+
+    public class While : If {
+        public While(Location loc, AstNode cond, AstNode[] stmts) : base(loc, cond, stmts) {}
+
+        public override void GenIl(Scope scope) {
+            string cond_label = condition.location.Label();
+            Output.WriteLine($"{cond_label}:");
+            string end = IfIl(scope);
+            Output.WriteLine($"br {cond_label}");
+            Output.WriteLine($"{end}:");
         }
     }
 

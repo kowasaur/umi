@@ -4,6 +4,15 @@ il void print(string) "call void [mscorlib]System.Console::WriteLine(string)"
 il void print(int32) "call void [mscorlib]System.Console::WriteLine(int32)"
 il void print(bool) "call void [mscorlib]System.Console::WriteLine(bool)"
 
+il void consoleWrite(string) "call void [mscorlib]System.Console::Write(string)"
+il string input() "call string class [mscorlib]System.Console::ReadLine()"
+
+# TODO: Maybe add inline functions
+string input(string prompt) {
+    consoleWrite(prompt)
+    input()
+}
+
 il string +(string, string) "call string string::Concat(string, string)"
 
 # Arithmetic Operators
@@ -14,7 +23,7 @@ il int32 /(int32, int32) "div"
 il int32 %(int32, int32) "rem"
 
 # Comparison Operators
-il bool ==(string, string) "ceq"
+il bool ==(string, string) "call bool string::op_Equality(string, string)"
 il bool ==(int32, int32) "ceq"
 il bool >(int32, int32) "cgt"
 il bool <(int32, int32) "clt"

@@ -33,8 +33,7 @@ def affect_all(output_func: Callable[[str, str], None]) -> None:
     for directory in ["examples", "tests"]:
         for path in glob(f"{directory}/*.umi"):
             compile_file(path)
-            # I'm using a 0 as the input because probably the only 
-            # other thing with input I will test is a truth machine
+            # I'm using a 0 as the input to test the truth machine
             output = subprocess.check_output(["mono", "output.exe"], input="0", text=True)
             output_func(path, output)
 
@@ -43,7 +42,7 @@ if __name__ == "__main__":
     subprocess.run(["mcs", "umi.cs"], stdout=subprocess.DEVNULL, check=True)
     if len(args) == 0:
         affect_all(test_output)
-        print("Everything passed succeessfully")
+        print("Everything passed successfully")
     else:
         affect_all(record_output)
         print("Finished recording output successfully")
