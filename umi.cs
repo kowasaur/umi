@@ -725,6 +725,7 @@ class AstNode {
         readonly string name;
         readonly string return_type;
         readonly Param[] parameters = new Param[0];
+        readonly string il_signature; // in definition and calling
 
         readonly List<string> local_var_types = new List<string>();
 
@@ -734,16 +735,33 @@ class AstNode {
             if (nodes[3] != null) {
                 parameters = ((AstNode.Multiple<AstNode.Param>)nodes[3]).ToArray();
             }
+
+            string[] param_types = Array.ConvertAll(parameters, p => p.type);
+            string il_name = $"'{name}'";
+            if (param_types.Length == 2) {
+                if (param_types[0] == "void") {
+                    il_name = $"'PREFIX{name}'";
+                    param_types = new string[] {param_types[1]};
+                } else if (param_types[1] == "void") {
+                    il_name = $"'POSTFIX{name}'";
+                    param_types = new string[] {param_types[0]};
+                }
+            }
+            il_signature = $"{return_type} {il_name}({String.Join(", ", param_types)})";
         }
 
         public override void CreateNameInfo(Scope scope) {
             string[] types = Array.ConvertAll(parameters, p => p.type);
-            FuncInfo.Ord func_info = new FuncInfo.Ord(types, name, return_type);
+            FuncInfo func_info = new FuncInfo(types, return_type, "call " + il_signature);
             scope.AddFunction(location, name, func_info);
 
             DeclareVariables(scope, local_var_types);
-
-            for (int i = 0; i < parameters.Length; i++) {
+            
+            // Handle prefix operator functions
+            if (parameters.Length == 2 && parameters[0].type == "void") {
+                Param p = parameters[1];
+                block_scope.Add(p.name, new Name.Var(p.type, p.name, true, 0, p.location));
+            } else for (int i = 0; i < parameters.Length; i++) {
                 Param p = parameters[i];
                 var par = new Name.Var(p.type, p.name, true, i, p.location);
                 block_scope.Add(p.name, par);
@@ -751,8 +769,7 @@ class AstNode {
         }
 
         public override void GenIl(Scope scope) {
-            string[] param_types = Array.ConvertAll(parameters, p => p.type);
-            Output.WriteLine($".method static {return_type} {name}({String.Join(", ", param_types)})");
+            Output.WriteLine($".method static {il_signature}");
             Output.WriteLine("{");
             Output.Indent();
             if (name == "main") Output.WriteLine(".entrypoint");
@@ -791,7 +808,7 @@ class AstNode {
         }
 
         public override void CreateNameInfo(Scope scope) {
-            scope.AddFunction(location, name, new FuncInfo.Il(param_types, return_type, il));
+            scope.AddFunction(location, name, new FuncInfo(param_types, return_type, il));
         }
 
         public override void GenIl(Scope _) {}
@@ -865,32 +882,18 @@ abstract class Name {
 
 }
 
-abstract class FuncInfo {
+class FuncInfo {
     public readonly string[] param_types;
     public readonly string return_type;
+    readonly string il;
 
-    public FuncInfo(string[] param_types, string return_type) {
+    public FuncInfo(string[] param_types, string return_type, string il) {
         this.param_types = param_types;
         this.return_type = return_type;
+        this.il = il;
     }
 
-    public abstract void GenIl();
-
-    // Ordinary function (as opposed to IL function)
-    public class Ord : FuncInfo {
-        readonly string name;
-        public Ord(string[] types, string name, string rt) : base(types, rt) => this.name = name;
-        
-        public override void GenIl() {
-            Output.WriteLine($"call {return_type} {name}({String.Join(", ", param_types)})");
-        }
-    }
-
-    public class Il : FuncInfo {
-        string il;
-        public Il(string[] types, string rt, string il) : base(types, rt) => this.il = il;
-        public override void GenIl() => Output.WriteLine(il);
-    }
+    public void GenIl() => Output.WriteLine(il);
 }
 
 class Scope {

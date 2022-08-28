@@ -5,7 +5,7 @@ il void print(int32) "call void [mscorlib]System.Console::WriteLine(int32)"
 il void print(bool) "call void [mscorlib]System.Console::WriteLine(bool)"
 
 il void consoleWrite(string) "call void [mscorlib]System.Console::Write(string)"
-il string input() "call string class [mscorlib]System.Console::ReadLine()"
+il string input() "call string [mscorlib]System.Console::ReadLine()"
 
 # TODO: Maybe add inline functions
 string input(string prompt) {
@@ -26,11 +26,15 @@ il int32 -(void, int32) "neg"
 # Comparison Operators
 il bool ==(string, string) "call bool string::op_Equality(string, string)"
 il bool ==(int32, int32) "ceq"
+il bool ==(bool, bool) "ceq"
 il bool >(int32, int32) "cgt"
 il bool <(int32, int32) "clt"
+bool >=(int32 a, int32 b) { !(a < b) }
+bool <=(int32 a, int32 b) { !(a > b) }
 
 # Logical Operators
 # Since these operations are bitwise, I'm thinking to 
 # use the same symbols for booleans and integers
 il bool &(bool, bool) "and"
 il bool |(bool, bool) "or"
+bool !(void _, bool a) { a == false }

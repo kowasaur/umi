@@ -1,15 +1,15 @@
-int32 factorial(int32 n) {
+int32 !(int32 n, void _) {
     if n == 0 { 1 }
-    else { n * factorial(n - 1) }
+    else { n * (n - 1)! }
 }
 
 void main() {
-    print(factorial(0))  #         1
-    print(factorial(1))  #         1
-    print(factorial(2))  #         2
-    print(factorial(3))  #         6
-    print(factorial(4))  #        24
-    print(factorial(5))  #       120
-    print(factorial(10)) #   3628800
-    print(factorial(12)) # 479001600
+    print(0!)  #         1
+    print(1!)  #         1
+    print(2!)  #         2
+    print(3!)  #         6
+    print(4!)  #        24
+    print(5!)  #       120
+    print(10!) #   3628800
+    print(12!) # 479001600
 }
