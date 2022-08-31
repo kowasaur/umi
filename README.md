@@ -14,6 +14,8 @@ Note that the .expected files are the expected output of the corresponding .umi 
 
 ## Features
 
+<!-- TODO: Choose stuff that you would actually want to present -->
+
 -   Strong static typing
 -   Implicit return
 -   Function overloading
@@ -28,7 +30,6 @@ Note that the .expected files are the expected output of the corresponding .umi 
 -   `for` `in` loop
 -   Creating range array with `...`
     -   E.g. `0...10`
--   Shorthand syntax for il functions
 -   String interpolation
 -   Anonymous functions
 -   Immutability by default

@@ -1,12 +1,12 @@
 # This is the standard library, included by default in all umi programs
 
-il void print(string) "call void [mscorlib]System.Console::WriteLine(string)"
-il void print(char) "call void [mscorlib]System.Console::WriteLine(char)"
-il void print(int32) "call void [mscorlib]System.Console::WriteLine(int32)"
-il void print(bool) "call void [mscorlib]System.Console::WriteLine(bool)"
+ilf void print(string) "[mscorlib]System.Console::WriteLine"
+ilf void print(char) "[mscorlib]System.Console::WriteLine"
+ilf void print(int32) "[mscorlib]System.Console::WriteLine"
+ilf void print(bool) "[mscorlib]System.Console::WriteLine"
 
-il void consoleWrite(string) "call void [mscorlib]System.Console::Write(string)"
-il string input() "call string [mscorlib]System.Console::ReadLine()"
+ilf void consoleWrite(string) "[mscorlib]System.Console::Write"
+ilf string input() "[mscorlib]System.Console::ReadLine"
 
 # TODO: Maybe add inline functions
 string input(string prompt) {
@@ -14,7 +14,7 @@ string input(string prompt) {
     input()
 }
 
-il string +(string, string) "call string string::Concat(string, string)"
+ilf string +(string, string) "string::Concat"
 
 # Arithmetic Operators
 il int32 +(int32, int32) "add"
@@ -25,7 +25,7 @@ il int32 %(int32, int32) "rem"
 il int32 -(void, int32) "neg"
 
 # Comparison Operators
-il bool ==(string, string) "call bool string::op_Equality(string, string)"
+ilf bool ==(string, string) "string::op_Equality"
 il bool ==(int32, int32) "ceq"
 il bool ==(bool, bool) "ceq"
 il bool >(int32, int32) "cgt"

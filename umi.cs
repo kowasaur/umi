@@ -55,6 +55,7 @@ class Token {
         COMMA,
         EQUAL,
         IL,
+        ILF,
         ALIAS,
         IF,
         ELSE,
@@ -132,6 +133,9 @@ class Lexer {
                 switch (content) {
                     case "il":
                         type = Token.Type.IL;
+                        break;
+                    case "ilf":
+                        type = Token.Type.ILF;
                         break;
                     case "alias":
                         type = Token.Type.ALIAS;
@@ -358,6 +362,7 @@ abstract class Grammar {
         var COMMA = new Tok(Token.Type.COMMA);
         var EQUAL = new Tok(Token.Type.EQUAL);
         var IL = new Tok(Token.Type.IL);
+        var ILF = new Tok(Token.Type.ILF);
         var IF = new Tok(Token.Type.IF);
         var ELSE = new Tok(Token.Type.ELSE);
 
@@ -492,11 +497,12 @@ abstract class Grammar {
 
         var TYPE_LIST = Multiple<AstNode.Identifier>("TYPE_LIST", new Grammar[] {IDENTIFIER, COMMA}, optional: true);
         var IL_FUNC = new Pattern("IL_FUNC", 
-            new Grammar[] {IL, IDENTIFIER, FUNC_IDEN, LPARAN, TYPE_LIST, RPARAN, STRING},
+            new Grammar[] {OneOf("ILish", new Grammar[] {IL, ILF}), IDENTIFIER, FUNC_IDEN, LPARAN, TYPE_LIST, RPARAN, STRING},
             (loc, nodes) => {
                 string type = ((AstNode.Identifier)nodes[1]).content;
                 string name = ((AstNode.Identifier)nodes[2]).content;
                 string il = ((AstNode.StringLiteral)nodes[6]).content;
+                
                 string[] param_types;
                 if (nodes[4] == null) {
                     param_types = new string[0];
@@ -504,6 +510,11 @@ abstract class Grammar {
                     var values = ((AstNode.Multiple<AstNode.Identifier>)nodes[4]).ToArray();
                     param_types = Array.ConvertAll(values, v => v.content);
                 }
+
+                if (((AstNode.Tok)nodes[0]).token.type == Token.Type.ILF) {
+                    il = $"call {type} {il}({String.Join(", ", param_types)})";
+                }
+
                 return new AstNode.IlFunc(loc, name, il, param_types, type);
             }
         );
