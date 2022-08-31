@@ -318,6 +318,15 @@ abstract class Grammar {
 
     static AstNode[] MultiArray(List<AstNode> nodes, int i) => ((AstNode.Multiple<AstNode>)nodes[i]).ToArray();
     
+    static readonly string[][] OPERATOR_PRECEDENCE = {
+        new string[] {"**"},
+        new string[] {"*", "/", "%"},
+        new string[] {"+", "-"},
+        new string[] {"<<", ">>", "&", "|", "^"},
+        new string[] {"==", "!=", ">", "<", ">=", "<="},
+        new string[] {"&&", "||"}
+    };
+
     static Pattern CreateProgramGrammar() {
         var LPARAN = new Tok(Token.Type.LPARAN);
         var RPARAN = new Tok(Token.Type.RPARAN);
@@ -379,13 +388,27 @@ abstract class Grammar {
         EXP_PART.possible_patterns[1][2] = EXP_PART;
 
         var EXPRESSION = new Pattern("EXPRESSION", new Grammar[] {EXP_PART}, (loc, nodes) => {
-            AstNode[] parts = MultiArray(nodes, 0);
+            List<AstNode> parts = MultiArray(nodes, 0).ToList();
 
-            if (parts.Length == 1) return parts[0];
-            // TODO: allow arbitrarily long expressions
-            if (parts.Length != 3) Umi.Crash("arbitrarily long expressions not implemented", loc);
+            while (parts.Count > 1) {
+                var ops = parts.Where((_, i) => i % 2 == 1).Select(o => ((AstNode.Identifier)o).content).ToList();
+                int x = 1;
+                foreach (string[] operators in OPERATOR_PRECEDENCE) {
+                    int ops_i = ops.FindIndex(o => operators.Contains(o));
+                    if (ops_i != -1) {
+                        x = 2 * ops_i + 1;
+                        break;
+                    }
+                }
 
-            return new AstNode.FuncCall(loc, ((AstNode.Identifier)parts[1]).content, new AstNode[] {parts[0], parts[2]});
+                var left = parts[x - 1];
+                var right = parts[x + 1];
+                var op = ((AstNode.Identifier)parts[x]).content;
+                parts.RemoveRange(x, 2);
+                parts[x - 1] = new AstNode.FuncCall(loc, op, new AstNode[] {left, right});
+            }
+
+            return parts[0];
         });
         SUBEXPRESSION.possible_patterns[0][1] = EXPRESSION;
 

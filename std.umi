@@ -35,6 +35,6 @@ bool <=(int32 a, int32 b) { !(a > b) }
 # Logical Operators
 # Since these operations are bitwise, I'm thinking to 
 # use the same symbols for booleans and integers
-il bool &(bool, bool) "and"
-il bool |(bool, bool) "or"
+il bool &&(bool, bool) "and"
+il bool ||(bool, bool) "or"
 bool !(void _, bool a) { a == false }

@@ -1,3 +1,3 @@
 void main() {
-    print(("Hello " + input("Enter name: ")) + "!")
+    print("Hello " + input("Enter name: ") + "!")
 }
