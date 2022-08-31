@@ -1,3 +1,9 @@
+# These can not be reassigned so they are like constants but they
+# are evaluated each time they are referenced
+alias SECONDS_IN_HOUR = 60 * 60
+
+int32 hoursToSeconds(int32 hours) { hours * SECONDS_IN_HOUR }
+
 void main() {
     string message = "hello!"
     print(message)
@@ -13,4 +19,6 @@ void main() {
     # the same characters C# supports should work
     char utf16 = '海' 
     print(utf16)
+
+    print(hoursToSeconds(30))
 }

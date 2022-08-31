@@ -55,6 +55,7 @@ class Token {
         COMMA,
         EQUAL,
         IL,
+        ALIAS,
         IF,
         ELSE,
         WHILE
@@ -131,6 +132,9 @@ class Lexer {
                 switch (content) {
                     case "il":
                         type = Token.Type.IL;
+                        break;
+                    case "alias":
+                        type = Token.Type.ALIAS;
                         break;
                     case "true":
                         type = Token.Type.BOOLEAN;
@@ -504,7 +508,11 @@ abstract class Grammar {
             }
         );
 
-        var GLOBAL_STATEMENTS = NewStatements("GLOBAL", new Grammar[] {FUNC_DEF, IL_FUNC});
+        var ALIAS = new Pattern("ALIAS", new Grammar[] {new Tok(Token.Type.ALIAS), IDENTIFIER, EQUAL, EXPRESSION}, 
+            (loc, nodes) => new AstNode.Alias(loc, ((AstNode.Identifier)nodes[1]).content, nodes[3])
+        );
+
+        var GLOBAL_STATEMENTS = NewStatements("GLOBAL", new Grammar[] {FUNC_DEF, IL_FUNC, ALIAS});
 
         var PROGRAM = new Pattern("PROGRAM", new Grammar[] {GLOBAL_STATEMENTS}, null);
         return PROGRAM;
@@ -593,14 +601,11 @@ class AstNode {
     public class Identifier : Value {
         public Identifier(Tok tok): base(tok) {}
 
-        public override string Type(Scope scope) => ((Name.Var)scope.LookUp(content, location)).type;
+        public override string Type(Scope scope) => ((Name.Varish)scope.LookUp(content, location)).Type(scope);
 
         public override void GenIl(Scope scope) {
-            Name.Var variable = (Name.Var)scope.LookUp(content, location);
-            if (variable.defined_at > location) {
-                Umi.Crash($"Can not use variable `{content}` before it is defined", location);
-            }
-            Output.WriteLine($"{(variable.is_param ? "ldarg" : "ldloc")} {variable.index}");
+            Name.Varish varish = (Name.Varish)scope.LookUp(content, location);
+            varish.GenIl(scope, this);
         }
     }
 
@@ -655,10 +660,14 @@ class AstNode {
         }
 
         public override void GenIl(Scope scope) {
-            Name.Var variable = (Name.Var)scope.LookUp(name, location);
+            Name maybe_var = scope.LookUp(name, location);
+            if (!(maybe_var is Name.Var)) Umi.Crash("Can only reassign local variables", location);
+            
+            Name.Var variable = (Name.Var)maybe_var;
             if (variable.defined_at > location) {
                 Umi.Crash($"Can not assign to variable `{name}` before it is defined", location);
             }
+
             value.ExpectType(variable.type, scope);
             value.GenIl(scope);
             Output.WriteLine($"stloc {variable.index}");
@@ -678,7 +687,7 @@ class AstNode {
                     var vardef = (AstNode.VarDef)stmt;
                     string name = vardef.assignment.name;
                     int i = local_var_types.Count;
-                    var variable = new Name.Var(vardef.type, name, false, i, vardef.location);
+                    var variable = new Name.Var(vardef.type, false, i, vardef.location);
                     local_var_types.Add(variable.type);
                     new_scope.Add(name, variable);
                 } else if (stmt is AstNode.Block) {
@@ -810,10 +819,10 @@ class AstNode {
             // Handle prefix operator functions
             if (parameters.Length == 2 && parameters[0].type == "void") {
                 Param p = parameters[1];
-                block_scope.Add(p.name, new Name.Var(p.type, p.name, true, 0, p.location));
+                block_scope.Add(p.name, new Name.Var(p.type, true, 0, p.location));
             } else for (int i = 0; i < parameters.Length; i++) {
                 Param p = parameters[i];
-                var par = new Name.Var(p.type, p.name, true, i, p.location);
+                var par = new Name.Var(p.type, true, i, p.location);
                 block_scope.Add(p.name, par);
             }
         }
@@ -861,6 +870,19 @@ class AstNode {
             scope.AddFunction(location, name, new FuncInfo(param_types, return_type, il));
         }
 
+        public override void GenIl(Scope _) {}
+    }
+
+    public class Alias : AstNode {
+        readonly string name;
+        readonly AstNode value;
+
+        public Alias(Location loc, string name, AstNode value) : base(loc) {
+            this.name = name;
+            this.value = value;
+        }
+
+        public override void CreateNameInfo(Scope scope) => scope.Add(name, new Name.Alias(location, value));
         public override void GenIl(Scope _) {}
     }
 
@@ -917,17 +939,37 @@ abstract class Name {
         }
     }
 
-    public class Var : Name {
+    // Var or Alias
+    public abstract class Varish : Name {
+        public Varish(Location defined_at) : base(defined_at) {}
+        public abstract string Type(Scope scope);
+        public abstract void GenIl(Scope scope, AstNode.Identifier context);
+    }
+
+    public class Var : Varish {
         public readonly string type;
-        public readonly string name;
-        public readonly bool is_param; // local variable or parameter
         public readonly int index;
-        public Var(string type, string name, bool is_param, int index, Location defined_at) : base(defined_at) {
+        readonly bool is_param; // local variable or parameter
+        public Var(string type, bool is_param, int index, Location defined_at) : base(defined_at) {
             this.type = type;
-            this.name = name;
             this.is_param = is_param;
             this.index = index;
         }
+        public override string Type(Scope _) => type;
+        public override void GenIl(Scope _, AstNode.Identifier context) {
+            if (defined_at > context.location) {
+                Umi.Crash($"Can not use variable `{context.content}` before it is defined", context.location);
+            }
+            Output.WriteLine($"{(is_param ? "ldarg" : "ldloc")} {index}");
+        }
+        
+    }
+
+    public class Alias : Varish {
+        public AstNode node;
+        public Alias(Location defined_at, AstNode node) : base(defined_at) => this.node = node;
+        public override string Type(Scope scope) => node.Type(scope);
+        public override void GenIl(Scope scope, AstNode.Identifier _) => node.GenIl(scope);
     }
 
 }
