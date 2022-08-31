@@ -91,17 +91,29 @@ class Lexer {
         i++;
     }
 
+    char NextChar() {
+        Increment();
+        return file[i];
+    }
+
     string ConsumeWhile(ContinueConsuming continueConsuming) {
         string content = "";
-        while (continueConsuming(file[i + 1])) {
-            Increment();
-            content += file[i];
-        }
+        while (continueConsuming(file[i + 1])) content += NextChar();
         return content;
     }
 
     string ConsumeWhile(char start, ContinueConsuming cc) => start.ToString() + ConsumeWhile(cc);
     
+    string QuoteConsume(char q) {
+        string content = "";
+        while(file[i + 1] != q) {
+            content += NextChar();
+            if (file[i] == '\\' && file[i + 1] == q) content += NextChar();
+        }
+        Increment();
+        return content;
+    }
+
     static bool IsOperatorChar(char c) => "+-*/%&|=><!".Contains(c);
     
     public List<Token> Lex(List<Token> tokens) {
@@ -170,8 +182,7 @@ class Lexer {
                     break;
                 case '"':
                     type = Token.Type.STRING;
-                    value = ConsumeWhile(ch => ch != '"');
-                    Increment();
+                    value = QuoteConsume('"');
                     break;
                 case '#':
                     ConsumeWhile(ch => ch != '\n');

@@ -20,6 +20,7 @@ Note that the .expected files are the expected output of the corresponding .umi 
     -   E.g. `0...10`
 -   Shorthand syntax for il functions
 -   String interpolation
+-   Anonymous functions
 -   Immutability by default
     -   Immutable references like `final`
     -   Make variable mutable with `mut` keyword

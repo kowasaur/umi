@@ -7,6 +7,6 @@ void main() {
     print(number)
     print(number_2)
 
-    message = "goodbye :("
+    message = "\"goodbye\" :("
     print(message)
 }
