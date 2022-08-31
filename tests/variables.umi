@@ -9,4 +9,8 @@ void main() {
 
     message = "\"goodbye\" :("
     print(message)
+
+    # the same characters C# supports should work
+    char utf16 = '海' 
+    print(utf16)
 }

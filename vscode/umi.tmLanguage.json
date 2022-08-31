@@ -6,6 +6,7 @@
         { "include": "#keywords" },
         { "include": "#booleans" },
         { "include": "#strings" },
+        { "include": "#characters" },
         { "include": "#numbers" },
         { "include": "#operators" }
     ],
@@ -22,6 +23,12 @@
             "name": "string.quoted.double",
             "begin": "\"",
             "end": "\"",
+            "patterns": [{ "name": "constant.character.escape", "match": "\\\\." }]
+        },
+        "characters": {
+            "name": "string.quoted.single",
+            "begin": "'",
+            "end": "'",
             "patterns": [{ "name": "constant.character.escape", "match": "\\\\." }]
         },
         "numbers": {

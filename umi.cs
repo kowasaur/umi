@@ -44,6 +44,7 @@ class Token {
         IDENTIFIER,
         OPERATOR,
         STRING,
+        CHAR,
         INTEGER,
         BOOLEAN,
         LPARAN,
@@ -108,7 +109,7 @@ class Lexer {
         string content = "";
         while(file[i + 1] != q) {
             content += NextChar();
-            if (file[i] == '\\' && file[i + 1] == q) content += NextChar();
+            if (file[i] == '\\' && (file[i + 1] == q || file[i + 1] == '\\')) content += NextChar();
         }
         Increment();
         return content;
@@ -183,6 +184,13 @@ class Lexer {
                 case '"':
                     type = Token.Type.STRING;
                     value = QuoteConsume('"');
+                    break;
+                case '\'':
+                    type = Token.Type.CHAR;
+                    value = QuoteConsume('\'');
+                    if (value.Length == 1) value = ((int)value[0]).ToString();
+                    else if (value.Length == 2 && value[0] == '\\') value = ((int)value[1]).ToString();
+                    else Umi.Crash("Chars may only be one character long", loc);
                     break;
                 case '#':
                     ConsumeWhile(ch => ch != '\n');
@@ -352,6 +360,9 @@ abstract class Grammar {
         var STRING = new Pattern("STRING", new Grammar[] {new Tok(Token.Type.STRING)}, 
             (_, nodes) => new AstNode.StringLiteral((AstNode.Tok)nodes[0])
         );
+        var CHAR = new Pattern("CHAR", new Grammar[] {new Tok(Token.Type.CHAR)}, 
+            (_, nodes) => new AstNode.CharLiteral((AstNode.Tok)nodes[0])
+        );
         var INTEGER = new Pattern("INTEGER", new Grammar[] {new Tok(Token.Type.INTEGER)}, 
             (_, nodes) => new AstNode.IntegerLiteral((AstNode.Tok)nodes[0])
         );
@@ -370,7 +381,7 @@ abstract class Grammar {
         );
 
         // A single term in an expresion
-        var TERM = OneOf("TERM", new Grammar[] {STRING, INTEGER, BOOLEAN, null, IDENTIFIER, SUBEXPRESSION});
+        var TERM = OneOf("TERM", new Grammar[] {STRING, CHAR, INTEGER, BOOLEAN, null, IDENTIFIER, SUBEXPRESSION});
 
         var POSTFIX = new Pattern("POSTFIX", new Grammar[] {TERM, OPERATOR}, (loc, nodes) => {
             string name = ((AstNode.Identifier)nodes[1]).content;
@@ -429,7 +440,7 @@ abstract class Grammar {
             AstNode[] args = nodes[2] == null ? new AstNode[0] : MultiArray(nodes, 2);
             return new AstNode.FuncCall(loc, name, args);
         });
-        TERM.possible_patterns[3][0] = FUNC_CALL;
+        TERM.possible_patterns[4][0] = FUNC_CALL;
 
         var VAR_ASSIGN = new Pattern("VAR_ASSIGN", new Grammar[] {IDENTIFIER, EQUAL, EXPRESSION}, (loc, nodes) => {
             string name = ((AstNode.Identifier)nodes[0]).content;
@@ -572,6 +583,11 @@ class AstNode {
     public class BooleanLiteral : IntegerLiteral {
         public BooleanLiteral(Tok tok): base(tok) {}
         public override string Type(Scope _) => "bool";
+    }
+
+    public class CharLiteral : IntegerLiteral {
+        public CharLiteral(Tok tok) : base(tok) {}
+        public override string Type(Scope _) => "char";
     }
 
     public class Identifier : Value {

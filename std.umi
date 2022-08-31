@@ -1,6 +1,7 @@
 # This is the standard library, included by default in all umi programs
 
 il void print(string) "call void [mscorlib]System.Console::WriteLine(string)"
+il void print(char) "call void [mscorlib]System.Console::WriteLine(char)"
 il void print(int32) "call void [mscorlib]System.Console::WriteLine(int32)"
 il void print(bool) "call void [mscorlib]System.Console::WriteLine(bool)"
 
