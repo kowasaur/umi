@@ -25,13 +25,18 @@ Note that the .expected files are the expected output of the corresponding .umi 
 
 ### Planned
 
+-   Aliases within local scopes
+-   Macros or inline functions
 -   Explicit return
 -   Classes
+-   Inheritance
+-   Generics
 -   `for` `in` loop
 -   Creating range array with `...`
     -   E.g. `0...10`
 -   String interpolation
 -   Anonymous functions
+-   Switch cases
 -   Immutability by default
     -   Immutable references like `final`
     -   Make variable mutable with `mut` keyword

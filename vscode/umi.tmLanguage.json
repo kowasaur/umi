@@ -14,8 +14,9 @@
         "comments": { "name": "comment.line.number-sign", "begin": "#", "end": "\n" },
         "keywords": {
             "patterns": [
-                { "name": "keyword.other", "match": "\\b(il|ilf|alias)\\b" },
-                { "name": "keyword.control", "match": "\\b(if|else|while)\\b" }
+                { "name": "keyword.other", "match": "\\b(il|ilf)\\b" },
+                { "name": "keyword.control", "match": "\\b(if|else|while)\\b" },
+                { "name": "storage.type", "match": "\\b(class|alias)\\b" }
             ]
         },
         "booleans": { "name": "constant.language.boolean", "match": "\\b(true|false)\\b" },

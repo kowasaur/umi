@@ -41,25 +41,12 @@ class Token {
 
     public enum Type {
         NOTHING, // for error reporting
-        IDENTIFIER,
-        OPERATOR,
-        STRING,
-        CHAR,
-        INTEGER,
-        BOOLEAN,
-        LPARAN,
-        RPARAN,
-        LCURLY,
-        RCURLY,
-        NEWLINE,
-        COMMA,
-        EQUAL,
-        IL,
-        ILF,
-        ALIAS,
-        IF,
-        ELSE,
-        WHILE
+        IDENTIFIER, OPERATOR,
+        STRING, CHAR, INTEGER, BOOLEAN,
+        LPARAN, RPARAN, LCURLY, RCURLY,
+        NEWLINE, COMMA, EQUAL,
+        IL, ILF, ALIAS, CLASS,
+        IF, ELSE, WHILE
     }
 
 }
@@ -131,6 +118,9 @@ class Lexer {
             } else if (Char.IsLetter(c) || c  == '_') {
                 string content = ConsumeWhile(c, ch => Char.IsLetterOrDigit(ch) || ch == '_');
                 switch (content) {
+                    case "class":
+                        type = Token.Type.CLASS;
+                        break;
                     case "il":
                         type = Token.Type.IL;
                         break;
@@ -329,6 +319,8 @@ abstract class Grammar {
         return pat;
     }
 
+    static readonly Tok LCURLY = new Tok(Token.Type.LCURLY);
+    static readonly Tok RCURLY = new Tok(Token.Type.RCURLY);
     // Mandatory newlines (at least 1)
     static readonly Pattern MNL = Multiple<AstNode>("MNL", new Grammar[] {
         new Tok(Token.Type.NEWLINE)
@@ -343,7 +335,13 @@ abstract class Grammar {
         return new Pattern(name + "S+NL", new Grammar[] {ONL, statements, ONL}, (_, nodes) => nodes[1]);
     }
 
+    static Pattern NewBlock(string name, Pattern statements) {
+        return new Pattern(name, new Grammar[] {LCURLY, statements, RCURLY}, (_, nodes) => nodes[1]);
+    }
+
+    // Shorthands
     static AstNode[] MultiArray(List<AstNode> nodes, int i) => ((AstNode.Multiple<AstNode>)nodes[i]).ToArray();
+    static string IdentifierText(List<AstNode> nodes, int i) => ((AstNode.Identifier)nodes[i]).content;
     
     static readonly string[][] OPERATOR_PRECEDENCE = {
         new string[] {"**"},
@@ -357,8 +355,6 @@ abstract class Grammar {
     static Pattern CreateProgramGrammar() {
         var LPARAN = new Tok(Token.Type.LPARAN);
         var RPARAN = new Tok(Token.Type.RPARAN);
-        var LCURLY = new Tok(Token.Type.LCURLY);
-        var RCURLY = new Tok(Token.Type.RCURLY);
         var COMMA = new Tok(Token.Type.COMMA);
         var EQUAL = new Tok(Token.Type.EQUAL);
         var IL = new Tok(Token.Type.IL);
@@ -393,11 +389,11 @@ abstract class Grammar {
         var TERM = OneOf("TERM", new Grammar[] {STRING, CHAR, INTEGER, BOOLEAN, null, IDENTIFIER, SUBEXPRESSION});
 
         var POSTFIX = new Pattern("POSTFIX", new Grammar[] {TERM, OPERATOR}, (loc, nodes) => {
-            string name = ((AstNode.Identifier)nodes[1]).content;
+            string name = IdentifierText(nodes, 1);
             return new AstNode.FuncCall(loc, name, new AstNode[] {nodes[0], new AstNode.Nothing()});
         });
         var PREFIX = new Pattern("PREFIX", new Grammar[] {OPERATOR, TERM}, (loc, nodes) => {
-            string name = ((AstNode.Identifier)nodes[0]).content;
+            string name = IdentifierText(nodes, 0);
             return new AstNode.FuncCall(loc, name, new AstNode[] {new AstNode.Nothing(), nodes[1]});
         });
         var UNARY = OneOf("UNARY", new Grammar[] {POSTFIX, PREFIX});
@@ -445,23 +441,21 @@ abstract class Grammar {
 
         var ARGUMENTS = Multiple<AstNode>("ARGUMENTS", new Grammar[] {EXPRESSION, COMMA}, optional: true);
         var FUNC_CALL = new Pattern("FUNC_CALL", new Grammar[] {IDENTIFIER, LPARAN, ARGUMENTS, RPARAN}, (loc, nodes) => {
-            string name = ((AstNode.Identifier)nodes[0]).content;
             AstNode[] args = nodes[2] == null ? new AstNode[0] : MultiArray(nodes, 2);
-            return new AstNode.FuncCall(loc, name, args);
+            return new AstNode.FuncCall(loc, IdentifierText(nodes, 0), args);
         });
         TERM.possible_patterns[4][0] = FUNC_CALL;
 
-        var VAR_ASSIGN = new Pattern("VAR_ASSIGN", new Grammar[] {IDENTIFIER, EQUAL, EXPRESSION}, (loc, nodes) => {
-            string name = ((AstNode.Identifier)nodes[0]).content;
-            return new AstNode.VarAssign(loc, name, nodes[2]);
-        });
+        var VAR_ASSIGN = new Pattern("VAR_ASSIGN", new Grammar[] {IDENTIFIER, EQUAL, EXPRESSION}, 
+            (loc, nodes) => new AstNode.VarAssign(loc, IdentifierText(nodes, 0), nodes[2])
+        );
 
         var VAR_DEF = new Pattern("VAR_DEF", new Grammar[] {IDENTIFIER, VAR_ASSIGN}, (loc, nodes) => {
-            string type = ((AstNode.Identifier)nodes[0]).content;
+            string type = IdentifierText(nodes, 0);
             return new AstNode.VarDef(loc, type, (AstNode.VarAssign)nodes[1]);
         });
 
-        var LOCAL_BLOCK = new Pattern("LOCAL_BLOCK", new Grammar[] {LCURLY, null, RCURLY}, (_, nodes) => nodes[1]);
+        var LOCAL_BLOCK = NewBlock("LOCAL_BLOCK", null);
 
         var ELSE_PART = new Pattern("ELSE", new Grammar[][] {
             new Grammar[] {ONL, ELSE, LOCAL_BLOCK}, new Grammar[] {ONL, ELSE, null}
@@ -487,20 +481,20 @@ abstract class Grammar {
         var FUNC_IDEN = OneOf("FUNC_IDEN", new Grammar[] {IDENTIFIER, OPERATOR});
 
         var PARAM = new Pattern("PARAM", new Grammar[] {IDENTIFIER, IDENTIFIER}, 
-            (loc, nodes) => new AstNode.Param(loc, nodes)
+            (loc, nodes) => new AstNode.Param(loc, IdentifierText(nodes, 0), IdentifierText(nodes, 1))
         );
         var PARAM_LIST = Multiple<AstNode.Param>("PARAM_LIST", new Grammar[] {PARAM, COMMA}, optional: true);
         var FUNC_DEF = new Pattern("FUNC_DEF", 
             new Grammar[] {IDENTIFIER, FUNC_IDEN, LPARAN, PARAM_LIST, RPARAN, LOCAL_BLOCK},
-            (loc, nodes) => new AstNode.FuncDef(loc, nodes)
+            (loc, nodes) => new AstNode.FuncDef(loc, nodes, true)
         );
 
         var TYPE_LIST = Multiple<AstNode.Identifier>("TYPE_LIST", new Grammar[] {IDENTIFIER, COMMA}, optional: true);
         var IL_FUNC = new Pattern("IL_FUNC", 
             new Grammar[] {OneOf("ILish", new Grammar[] {IL, ILF}), IDENTIFIER, FUNC_IDEN, LPARAN, TYPE_LIST, RPARAN, STRING},
             (loc, nodes) => {
-                string type = ((AstNode.Identifier)nodes[1]).content;
-                string name = ((AstNode.Identifier)nodes[2]).content;
+                string type = IdentifierText(nodes, 1);
+                string name = IdentifierText(nodes, 2);
                 string il = ((AstNode.StringLiteral)nodes[6]).content;
                 
                 string[] param_types;
@@ -520,10 +514,29 @@ abstract class Grammar {
         );
 
         var ALIAS = new Pattern("ALIAS", new Grammar[] {new Tok(Token.Type.ALIAS), IDENTIFIER, EQUAL, EXPRESSION}, 
-            (loc, nodes) => new AstNode.Alias(loc, ((AstNode.Identifier)nodes[1]).content, nodes[3])
+            (loc, nodes) => new AstNode.Alias(loc, IdentifierText(nodes, 1), nodes[3])
         );
 
-        var GLOBAL_STATEMENTS = NewStatements("GLOBAL", new Grammar[] {FUNC_DEF, IL_FUNC, ALIAS});
+        // TODO: maybe make a pattern for the "type name' thing
+        var FIELD = new Pattern("FIELD", new Grammar[] {IDENTIFIER, IDENTIFIER}, 
+            (loc, nodes) => new AstNode.Field(loc, IdentifierText(nodes, 0), IdentifierText(nodes, 1))
+        );
+        
+        var METHOD = new Pattern("METHOD", 
+            new Grammar[] {IDENTIFIER, FUNC_IDEN.NewOptional("OPT_IDEN"), LPARAN, PARAM_LIST, RPARAN, LOCAL_BLOCK},
+            (loc, nodes) => {
+                if (nodes[1] == null) nodes[1] = nodes[0];
+                return new AstNode.FuncDef(loc, nodes, false);
+            }
+        );
+
+        var CLASS_STMTS = NewStatements("CLASS_STMTS", new Grammar[] {METHOD, FIELD});
+        var CLASS_BLOCK = NewBlock("CLASS_BLOCK", CLASS_STMTS);
+        var CLASS = new Pattern("CLASS", new Grammar[] {new Tok(Token.Type.CLASS), IDENTIFIER, CLASS_BLOCK}, (loc, nodes) => {
+            return new AstNode.Class(loc, IdentifierText(nodes, 1), MultiArray(nodes, 2));
+        });
+
+        var GLOBAL_STATEMENTS = NewStatements("GLOBAL", new Grammar[] {FUNC_DEF, IL_FUNC, ALIAS, CLASS});
 
         var PROGRAM = new Pattern("PROGRAM", new Grammar[] {GLOBAL_STATEMENTS}, null);
         return PROGRAM;
@@ -623,9 +636,9 @@ class AstNode {
     public class Param : AstNode {
         public readonly string type;
         public readonly string name;
-        public Param(Location loc, List<AstNode> nodes) : base(loc) {
-            this.type = ((AstNode.Identifier)nodes[0]).content;
-            this.name = ((AstNode.Identifier)nodes[1]).content;
+        public Param(Location loc, string type, string name) : base(loc) {
+            this.type = type;
+            this.name = name;
         }
     }
 
@@ -685,6 +698,7 @@ class AstNode {
         }
     }
     
+    // TODO: Make If, etc HAVE a Block not inherit it
     public abstract class Block : AstNode {
         protected readonly AstNode[] statements;
         protected Scope block_scope;
@@ -795,34 +809,51 @@ class AstNode {
         readonly string name;
         readonly string return_type;
         readonly Param[] parameters = new Param[0];
-        readonly string il_signature; // in definition and calling
+        readonly bool is_static;
+
+        // for definition and calling
+        readonly string il_name;
+        readonly string param_types;
+        string il_name_prefix = "";
 
         readonly List<string> local_var_types = new List<string>();
 
-        public FuncDef(Location loc, List<AstNode> nodes) : base(loc, ((Multiple<AstNode>)nodes[5]).ToArray()) {
+        public FuncDef(Location loc, List<AstNode> nodes, bool is_static) : base(loc, ((Multiple<AstNode>)nodes[5]).ToArray()) {
+            this.is_static = is_static;
             return_type = ((Identifier)nodes[0]).content;
             name = ((Identifier)nodes[1]).content;
             if (nodes[3] != null) {
                 parameters = ((AstNode.Multiple<AstNode.Param>)nodes[3]).ToArray();
             }
 
-            string[] param_types = Array.ConvertAll(parameters, p => p.type);
-            string il_name = $"'{name}'";
-            if (param_types.Length == 2) {
-                if (param_types[0] == "void") {
+            string[] parameter_types = Array.ConvertAll(parameters, p => p.type);
+            il_name = $"'{name}'";
+            if (name == return_type) { // constructor
+                il_name = ".ctor";
+            } if (parameter_types.Length == 2) { // unary operator
+                if (parameter_types[0] == "void") {
                     il_name = $"'PREFIX{name}'";
-                    param_types = new string[] {param_types[1]};
-                } else if (param_types[1] == "void") {
+                    parameter_types = new string[] {parameter_types[1]};
+                } else if (parameter_types[1] == "void") {
                     il_name = $"'POSTFIX{name}'";
-                    param_types = new string[] {param_types[0]};
+                    parameter_types = new string[] {parameter_types[0]};
                 }
             }
-            il_signature = $"{return_type} {il_name}({String.Join(", ", param_types)})";
+            param_types = string.Join(", ", parameter_types);
+        }
+
+        public void PrefixIlName(string prefix) => il_name_prefix = prefix;
+
+        string IlSignature(string n) {
+            string rt = return_type == name ? "void" : return_type; // constructor
+            return $"{rt} {n}({param_types})";
         }
 
         public override void CreateNameInfo(Scope scope) {
             string[] types = Array.ConvertAll(parameters, p => p.type);
-            FuncInfo func_info = new FuncInfo(types, return_type, "call " + il_signature);
+            string call_word = is_static ? "call " : "callvirt ";
+            if (return_type == name) call_word = "newobj ";
+            FuncInfo func_info = new FuncInfo(types, return_type, call_word + IlSignature(il_name_prefix + il_name));
             scope.AddFunction(location, name, func_info);
 
             DeclareVariables(scope, local_var_types);
@@ -831,7 +862,7 @@ class AstNode {
             if (parameters.Length == 2 && parameters[0].type == "void") {
                 Param p = parameters[1];
                 block_scope.Add(p.name, new Name.Var(p.type, true, 0, p.location));
-            } else for (int i = 0; i < parameters.Length; i++) {
+            } else for (int i = 0; i < parameters.Length; i++) { // TODO: add `this`
                 Param p = parameters[i];
                 var par = new Name.Var(p.type, true, i, p.location);
                 block_scope.Add(p.name, par);
@@ -839,7 +870,7 @@ class AstNode {
         }
 
         public override void GenIl(Scope scope) {
-            Output.WriteLine($".method static {il_signature}");
+            Output.WriteLine($".method {(is_static ? "static " : "")}{IlSignature(il_name)}");
             Output.WriteLine("{");
             Output.Indent();
             if (name == "main") Output.WriteLine(".entrypoint");
@@ -895,6 +926,52 @@ class AstNode {
 
         public override void CreateNameInfo(Scope scope) => scope.Add(name, new Name.Alias(location, value));
         public override void GenIl(Scope _) {}
+    }
+
+    public class Field : AstNode {
+        readonly string type;
+        readonly string name;
+
+        public Field(Location loc, string type, string name) : base(loc) {
+            this.type = type;
+            this.name = name;
+        }
+
+        public override void CreateNameInfo(Scope scope) {} // TODO
+        public override void GenIl(Scope scope) => Output.WriteLine($".field {type} {name}\n");
+    }
+
+    public class Class : AstNode {
+        readonly string name;
+        readonly AstNode[] statements;
+        Scope class_scope;
+
+        public Class(Location loc, string name, AstNode[] statements) : base(loc) {
+            this.name = name;
+            this.statements = statements;
+        }
+
+        public override void CreateNameInfo(Scope scope) {
+            class_scope = new Scope(scope);
+            foreach (AstNode stmt in statements) {
+                if (stmt is AstNode.FuncDef) ((AstNode.FuncDef)stmt).PrefixIlName($"{name}::");
+                stmt.CreateNameInfo(class_scope);
+            }
+            
+            Name constructor;
+            if (class_scope.names.TryGetValue(name, out constructor)) {
+                scope.Add(name, constructor);
+            }
+        }
+
+        public override void GenIl(Scope scope) {
+            Output.WriteLine($".class {name}");
+            Output.WriteLine("{");
+            Output.Indent();
+            foreach (AstNode stmt in statements) stmt.GenIl(class_scope);
+            Output.Unindent();
+            Output.WriteLine("}\n");
+        }
     }
 
     public class Program : AstNode {
