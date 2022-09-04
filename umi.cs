@@ -44,7 +44,7 @@ class Token {
         IDENTIFIER, OPERATOR,
         STRING, CHAR, INTEGER, BOOLEAN,
         LPARAN, RPARAN, LCURLY, RCURLY,
-        NEWLINE, COMMA, EQUAL,
+        NEWLINE, COMMA, DOT, EQUAL,
         IL, ILF, ALIAS, CLASS,
         IF, ELSE, WHILE
     }
@@ -178,6 +178,9 @@ class Lexer {
                     break;
                 case ',':
                     type = Token.Type.COMMA;
+                    break;
+                case '.':
+                    type = Token.Type.DOT;
                     break;
                 case '"':
                     type = Token.Type.STRING;
@@ -356,6 +359,7 @@ abstract class Grammar {
         var LPARAN = new Tok(Token.Type.LPARAN);
         var RPARAN = new Tok(Token.Type.RPARAN);
         var COMMA = new Tok(Token.Type.COMMA);
+        var DOT = new Tok(Token.Type.DOT);
         var EQUAL = new Tok(Token.Type.EQUAL);
         var IL = new Tok(Token.Type.IL);
         var ILF = new Tok(Token.Type.ILF);
@@ -380,6 +384,12 @@ abstract class Grammar {
         var OPERATOR = new Pattern("OPERATOR", new Grammar[] {new Tok(Token.Type.OPERATOR)},
             (_, nodes) => new AstNode.Identifier((AstNode.Tok)nodes[0])
         );
+
+        // TODO: allow the left side to be any expression
+        // class.field etc
+        // var FULLNAME = new Pattern("FULLNAME", new Grammar[] {IDENTIFIER, DOT, IDENTIFIER}, (loc, nodes) => {
+
+        // });
 
         var SUBEXPRESSION = new Pattern ("SUBEXPRESSION", new Grammar[] {LPARAN, null, RPARAN}, 
             (_, nodes) => nodes[1]
@@ -633,6 +643,17 @@ class AstNode {
         }
     }
 
+    // e.g parent.child
+    public class Dot : AstNode {
+        readonly string parent;
+        readonly string child;
+
+        public Dot(Location loc, string parent, string child): base(loc) {
+            this.parent = parent;
+            this.child = child;
+        }
+    }
+
     public class Param : AstNode {
         public readonly string type;
         public readonly string name;
@@ -652,10 +673,18 @@ class AstNode {
         }
 
         FuncInfo GetFuncInfo(Scope scope) {
-            Name.Func func = (Name.Func)scope.LookUp(name, location);
-            string[] arg_types = Array.ConvertAll(arguments, arg => arg.Type(scope));
+            Name maybe_func = scope.LookUp(name, location);
+            Name.Func func;
+            if (maybe_func is Name.Func) func = (Name.Func)maybe_func;
+            else if (maybe_func is Name.Class) func = ((Name.Class)maybe_func).constructor; 
+            else {
+                Umi.Crash("Tried to call something that is not a function", location);
+                return null;
+            }
 
+            string[] arg_types = Array.ConvertAll(arguments, arg => arg.Type(scope));
             FuncInfo func_info = func.BestFit(arg_types);
+
             if (func_info == null) {
                 string types = String.Join("`, `", arg_types);
                 Umi.Crash($"Overload with types `{types}` does not exist for `{name}`", location);
@@ -806,7 +835,7 @@ class AstNode {
     }
 
     public class FuncDef : Block {
-        readonly string name;
+        public readonly string name;
         readonly string return_type;
         readonly Param[] parameters = new Param[0];
         readonly bool is_static;
@@ -849,12 +878,11 @@ class AstNode {
             return $"{rt} {n}({param_types})";
         }
 
-        public override void CreateNameInfo(Scope scope) {
+        public FuncInfo CreateFuncInfo(Scope scope) {
             string[] types = Array.ConvertAll(parameters, p => p.type);
             string call_word = is_static ? "call " : "callvirt ";
             if (return_type == name) call_word = "newobj ";
             FuncInfo func_info = new FuncInfo(types, return_type, call_word + IlSignature(il_name_prefix + il_name));
-            scope.AddFunction(location, name, func_info);
 
             DeclareVariables(scope, local_var_types);
             
@@ -867,7 +895,11 @@ class AstNode {
                 var par = new Name.Var(p.type, true, i, p.location);
                 block_scope.Add(p.name, par);
             }
+
+            return func_info;
         }
+
+        public override void CreateNameInfo(Scope scope) => scope.AddFunction(location, name, CreateFuncInfo(scope));
 
         public override void GenIl(Scope scope) {
             Output.WriteLine($".method {(is_static ? "static " : "")}{IlSignature(il_name)}");
@@ -944,7 +976,7 @@ class AstNode {
     public class Class : AstNode {
         readonly string name;
         readonly AstNode[] statements;
-        Scope class_scope;
+        Scope class_scope; // TODO: probably move to the Name
 
         public Class(Location loc, string name, AstNode[] statements) : base(loc) {
             this.name = name;
@@ -952,15 +984,19 @@ class AstNode {
         }
 
         public override void CreateNameInfo(Scope scope) {
+            var this_class = new Name.Class(location);
+            scope.Add(name, this_class);
             class_scope = new Scope(scope);
+
             foreach (AstNode stmt in statements) {
-                if (stmt is AstNode.FuncDef) ((AstNode.FuncDef)stmt).PrefixIlName($"{name}::");
-                stmt.CreateNameInfo(class_scope);
-            }
-            
-            Name constructor;
-            if (class_scope.names.TryGetValue(name, out constructor)) {
-                scope.Add(name, constructor);
+                if (stmt is AstNode.FuncDef) { 
+                    var fd = (AstNode.FuncDef)stmt;
+                    fd.PrefixIlName($"{name}::");
+                    if (fd.name == name) this_class.constructor.functions.Add(fd.CreateFuncInfo(class_scope));
+                    else fd.CreateNameInfo(class_scope);
+                }
+                // TODO: figure out what to do with fields
+                // stmt.CreateNameInfo(class_scope);
             }
         }
 
@@ -1008,6 +1044,14 @@ abstract class Name {
     public readonly Location defined_at;
 
     Name(Location defined_at) => this.defined_at = defined_at;
+
+    public class Class : Name {
+        public readonly Func constructor;
+
+        public Class(Location loc) : base(loc) {
+            constructor = new Func(loc);
+        }
+    }
 
     public class Func : Name {
         // The various definitions for the different overloads
