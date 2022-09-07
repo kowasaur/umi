@@ -387,16 +387,17 @@ abstract class Grammar {
 
         // TODO: allow the left side to be any expression
         // class.field etc
-        // var FULLNAME = new Pattern("FULLNAME", new Grammar[] {IDENTIFIER, DOT, IDENTIFIER}, (loc, nodes) => {
-
-        // });
+        var FULLNAME = new Pattern("FULLNAME", new Grammar[] {IDENTIFIER, DOT, IDENTIFIER}, 
+            (loc, nodes) => new AstNode.Dot(loc, nodes[0], IdentifierText(nodes, 2))
+        );
+        var NAME = OneOf("NAME", new Grammar[] {FULLNAME, IDENTIFIER});
 
         var SUBEXPRESSION = new Pattern ("SUBEXPRESSION", new Grammar[] {LPARAN, null, RPARAN}, 
             (_, nodes) => nodes[1]
         );
 
         // A single term in an expresion
-        var TERM = OneOf("TERM", new Grammar[] {STRING, CHAR, INTEGER, BOOLEAN, null, IDENTIFIER, SUBEXPRESSION});
+        var TERM = OneOf("TERM", new Grammar[] {STRING, CHAR, INTEGER, BOOLEAN, null, NAME, SUBEXPRESSION});
 
         var POSTFIX = new Pattern("POSTFIX", new Grammar[] {TERM, OPERATOR}, (loc, nodes) => {
             string name = IdentifierText(nodes, 1);
@@ -640,17 +641,6 @@ class AstNode {
         public override void GenIl(Scope scope) {
             Name.Varish varish = (Name.Varish)scope.LookUp(content, location);
             varish.GenIl(scope, this);
-        }
-    }
-
-    // e.g parent.child
-    public class Dot : AstNode {
-        readonly string parent;
-        readonly string child;
-
-        public Dot(Location loc, string parent, string child): base(loc) {
-            this.parent = parent;
-            this.child = child;
         }
     }
 
@@ -960,6 +950,34 @@ class AstNode {
         public override void GenIl(Scope _) {}
     }
 
+    // e.g parent.child
+    public class Dot : AstNode {
+        readonly AstNode parent;
+        readonly string child;
+
+        public Dot(Location loc, AstNode parent, string child): base(loc) {
+            this.parent = parent;
+            this.child = child;
+        }
+
+        Name.Class GetClass(Scope scope) {
+            string cls_type = parent.Type(scope);
+            return (Name.Class)scope.LookUp(cls_type, location);
+        }
+
+        Name.Field GetField(Name.Class cls) => ((Name.Field)cls.members.LookUp(child, location));
+        
+        string Type(Name.Class cls) => GetField(cls).type;
+
+        public override string Type(Scope scope) => Type(GetClass(scope));
+
+        public override void GenIl(Scope scope) {
+            parent.GenIl(scope);
+            Name.Class cls = GetClass(scope);
+            Output.WriteLine($"ldfld {Type(cls)} {cls.name}::{child}");
+        }
+    }
+
     public class Field : AstNode {
         readonly string type;
         readonly string name;
@@ -969,14 +987,14 @@ class AstNode {
             this.name = name;
         }
 
-        public override void CreateNameInfo(Scope scope) {} // TODO
+        public override void CreateNameInfo(Scope scope) => scope.Add(name, new Name.Field(location, type));
         public override void GenIl(Scope scope) => Output.WriteLine($".field {type} {name}\n");
     }
 
     public class Class : AstNode {
         readonly string name;
         readonly AstNode[] statements;
-        Scope class_scope; // TODO: probably move to the Name
+        Scope class_scope;
 
         public Class(Location loc, string name, AstNode[] statements) : base(loc) {
             this.name = name;
@@ -984,9 +1002,9 @@ class AstNode {
         }
 
         public override void CreateNameInfo(Scope scope) {
-            var this_class = new Name.Class(location);
-            scope.Add(name, this_class);
             class_scope = new Scope(scope);
+            var this_class = new Name.Class(location, name, class_scope);
+            scope.Add(name, this_class);
 
             foreach (AstNode stmt in statements) {
                 if (stmt is AstNode.FuncDef) { 
@@ -994,9 +1012,9 @@ class AstNode {
                     fd.PrefixIlName($"{name}::");
                     if (fd.name == name) this_class.constructor.functions.Add(fd.CreateFuncInfo(class_scope));
                     else fd.CreateNameInfo(class_scope);
+                } else {
+                    stmt.CreateNameInfo(class_scope);
                 }
-                // TODO: figure out what to do with fields
-                // stmt.CreateNameInfo(class_scope);
             }
         }
 
@@ -1046,9 +1064,13 @@ abstract class Name {
     Name(Location defined_at) => this.defined_at = defined_at;
 
     public class Class : Name {
+        public readonly string name;
         public readonly Func constructor;
+        public readonly Scope members;
 
-        public Class(Location loc) : base(loc) {
+        public Class(Location loc, string name, Scope members) : base(loc) {
+            this.name = name;
+            this.members = members;
             constructor = new Func(loc);
         }
     }
@@ -1102,6 +1124,11 @@ abstract class Name {
         public Alias(Location defined_at, AstNode node) : base(defined_at) => this.node = node;
         public override string Type(Scope scope) => node.Type(scope);
         public override void GenIl(Scope scope, AstNode.Identifier _) => node.GenIl(scope);
+    }
+
+    public class Field : Name {
+        public readonly string type;
+        public Field(Location defined_at, string type) : base(defined_at) => this.type = type;
     }
 
 }
