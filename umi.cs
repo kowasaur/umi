@@ -390,14 +390,13 @@ abstract class Grammar {
         var FULLNAME = new Pattern("FULLNAME", new Grammar[] {IDENTIFIER, DOT, IDENTIFIER}, 
             (loc, nodes) => new AstNode.Dot(loc, nodes[0], IdentifierText(nodes, 2))
         );
-        var NAME = OneOf("NAME", new Grammar[] {FULLNAME, IDENTIFIER});
 
         var SUBEXPRESSION = new Pattern ("SUBEXPRESSION", new Grammar[] {LPARAN, null, RPARAN}, 
             (_, nodes) => nodes[1]
         );
 
         // A single term in an expresion
-        var TERM = OneOf("TERM", new Grammar[] {STRING, CHAR, INTEGER, BOOLEAN, null, NAME, SUBEXPRESSION});
+        var TERM = OneOf("TERM", new Grammar[] {STRING, CHAR, INTEGER, BOOLEAN, null, FULLNAME, IDENTIFIER, SUBEXPRESSION});
 
         var POSTFIX = new Pattern("POSTFIX", new Grammar[] {TERM, OPERATOR}, (loc, nodes) => {
             string name = IdentifierText(nodes, 1);
@@ -457,6 +456,10 @@ abstract class Grammar {
         });
         TERM.possible_patterns[4][0] = FUNC_CALL;
 
+        var FIELD_ASSIGN = new Pattern("FIELD_ASSIGN", new Grammar[] {FULLNAME, EQUAL, EXPRESSION}, 
+            (loc, nodes) => new AstNode.FieldAssign(loc, (AstNode.Dot)nodes[0], nodes[2])
+        );
+
         var VAR_ASSIGN = new Pattern("VAR_ASSIGN", new Grammar[] {IDENTIFIER, EQUAL, EXPRESSION}, 
             (loc, nodes) => new AstNode.VarAssign(loc, IdentifierText(nodes, 0), nodes[2])
         );
@@ -485,7 +488,7 @@ abstract class Grammar {
             (loc, nodes) => new AstNode.While(loc, nodes[1], MultiArray(nodes, 2))
         );
 
-        var LOCAL_STMTS = NewStatements("LOCAL", new Grammar[] {VAR_DEF, VAR_ASSIGN, EXPRESSION, IF_STMT, WHILE});
+        var LOCAL_STMTS = NewStatements("LOCAL", new Grammar[] {VAR_DEF, VAR_ASSIGN, FIELD_ASSIGN, EXPRESSION, IF_STMT, WHILE});
         LOCAL_BLOCK.possible_patterns[0][1] = LOCAL_STMTS;
 
         // function definition identifier
@@ -714,6 +717,26 @@ class AstNode {
             value.ExpectType(variable.type, scope);
             value.GenIl(scope);
             Output.WriteLine($"stloc {variable.index}");
+        }
+    }
+
+    public class FieldAssign : AstNode {
+        readonly Dot dot;
+        readonly AstNode value;
+
+        public FieldAssign(Location loc, Dot dot, AstNode value) : base(loc) {
+            this.dot = dot;
+            this.value = value;
+        }
+
+        public override void GenIl(Scope scope) {
+            Name.Class cls = dot.GetClass(scope);
+            string type = dot.Type(cls);
+            value.ExpectType(type, scope);
+
+            dot.parent.GenIl(scope);
+            value.GenIl(scope);
+            Output.WriteLine($"stfld {type} {cls.name}::{dot.child}");
         }
     }
     
@@ -952,22 +975,22 @@ class AstNode {
 
     // e.g parent.child
     public class Dot : AstNode {
-        readonly AstNode parent;
-        readonly string child;
+        public readonly AstNode parent;
+        public readonly string child;
 
         public Dot(Location loc, AstNode parent, string child): base(loc) {
             this.parent = parent;
             this.child = child;
         }
 
-        Name.Class GetClass(Scope scope) {
+        public Name.Class GetClass(Scope scope) {
             string cls_type = parent.Type(scope);
             return (Name.Class)scope.LookUp(cls_type, location);
         }
 
         Name.Field GetField(Name.Class cls) => ((Name.Field)cls.members.LookUp(child, location));
         
-        string Type(Name.Class cls) => GetField(cls).type;
+        public string Type(Name.Class cls) => GetField(cls).type;
 
         public override string Type(Scope scope) => Type(GetClass(scope));
 
