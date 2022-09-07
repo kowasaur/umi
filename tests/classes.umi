@@ -1,0 +1,16 @@
+class Person {
+    string name
+    int32 age
+
+    Person(string name, int32 a) {
+        this.name = name
+        age = a
+        print("Making " + name + " caused a side effect")
+    }
+}
+
+void main() {
+    Person p = Person("Barry", 63)
+    print(p.name)
+    print(p.age)
+}

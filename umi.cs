@@ -707,7 +707,16 @@ class AstNode {
 
         public override void GenIl(Scope scope) {
             Name maybe_var = scope.LookUp(name, location);
-            if (!(maybe_var is Name.Var)) Umi.Crash("Can only reassign local variables", location);
+            if (!(maybe_var is Name.Var)) {
+                if (maybe_var is Name.Field) {
+                    var this_tok = new AstNode.Tok(new Token(Token.Type.NOTHING, location, "this"));
+                    var dot = new AstNode.Dot(location, new AstNode.Identifier(this_tok), name);
+                    new AstNode.FieldAssign(location, dot, value).GenIl(scope);
+                    return;
+                } else {
+                    Umi.Crash("Can only reassign local variables", location);
+                }
+            }
             
             Name.Var variable = (Name.Var)maybe_var;
             if (variable.defined_at > location) {
@@ -856,7 +865,7 @@ class AstNode {
         // for definition and calling
         readonly string il_name;
         readonly string param_types;
-        string il_name_prefix = "";
+        string parent_class;
 
         readonly List<string> local_var_types = new List<string>();
 
@@ -884,7 +893,7 @@ class AstNode {
             param_types = string.Join(", ", parameter_types);
         }
 
-        public void PrefixIlName(string prefix) => il_name_prefix = prefix;
+        public void SetParentClass(string pc) => parent_class = pc;
 
         string IlSignature(string n) {
             string rt = return_type == name ? "void" : return_type; // constructor
@@ -895,16 +904,20 @@ class AstNode {
             string[] types = Array.ConvertAll(parameters, p => p.type);
             string call_word = is_static ? "call " : "callvirt ";
             if (return_type == name) call_word = "newobj ";
-            FuncInfo func_info = new FuncInfo(types, return_type, call_word + IlSignature(il_name_prefix + il_name));
+            string full_name = parent_class == null ? il_name : parent_class + "::" + il_name;
+            FuncInfo func_info = new FuncInfo(types, return_type, call_word + IlSignature(full_name));
 
             DeclareVariables(scope, local_var_types);
             
+            List<Param> paras = parameters.ToList();
+            if (!is_static) paras.Insert(0, new Param(location, parent_class, "this"));
+
             // Handle prefix operator functions
-            if (parameters.Length == 2 && parameters[0].type == "void") {
-                Param p = parameters[1];
+            if (paras.Count == 2 && paras[0].type == "void") {
+                Param p = paras[1];
                 block_scope.Add(p.name, new Name.Var(p.type, true, 0, p.location));
-            } else for (int i = 0; i < parameters.Length; i++) { // TODO: add `this`
-                Param p = parameters[i];
+            } else for (int i = 0; i < paras.Count; i++) { // TODO: add `this`
+                Param p = paras[i];
                 var par = new Name.Var(p.type, true, i, p.location);
                 block_scope.Add(p.name, par);
             }
@@ -1032,7 +1045,7 @@ class AstNode {
             foreach (AstNode stmt in statements) {
                 if (stmt is AstNode.FuncDef) { 
                     var fd = (AstNode.FuncDef)stmt;
-                    fd.PrefixIlName($"{name}::");
+                    fd.SetParentClass(name);
                     if (fd.name == name) this_class.constructor.functions.Add(fd.CreateFuncInfo(class_scope));
                     else fd.CreateNameInfo(class_scope);
                 } else {
