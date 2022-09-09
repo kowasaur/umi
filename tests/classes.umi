@@ -7,10 +7,20 @@ class Person {
         age = a
         print("Making " + name + " caused a side effect")
     }
+
+    void introduce() {
+        consoleWrite("Hello I am " + name + ", ")
+        print(this.age)
+    }
+
+    # Returns the Person's age after `years` years
+    int32 ageAfterYears(int32 years) { age + years }
 }
 
 void main() {
     Person p = Person("Barry", 63)
     print(p.name)
     print(p.age)
+    p.introduce()
+    print(p.ageAfterYears(15))
 }

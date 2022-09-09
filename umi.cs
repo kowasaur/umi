@@ -450,10 +450,16 @@ abstract class Grammar {
         SUBEXPRESSION.possible_patterns[0][1] = EXPRESSION;
 
         var ARGUMENTS = Multiple<AstNode>("ARGUMENTS", new Grammar[] {EXPRESSION, COMMA}, optional: true);
-        var FUNC_CALL = new Pattern("FUNC_CALL", new Grammar[] {IDENTIFIER, LPARAN, ARGUMENTS, RPARAN}, (loc, nodes) => {
+        var NORM_FUNC_CALL = new Pattern("NORM_FUNC_CALL", new Grammar[] {IDENTIFIER, LPARAN, ARGUMENTS, RPARAN}, (loc, nodes) => {
             AstNode[] args = nodes[2] == null ? new AstNode[0] : MultiArray(nodes, 2);
             return new AstNode.FuncCall(loc, IdentifierText(nodes, 0), args);
         });
+        var METHOD_CALL = new Pattern("METHOD_CALL", new Grammar[] {FULLNAME, LPARAN, ARGUMENTS, RPARAN}, (loc, nodes) => {
+            AstNode[] args = nodes[2] == null ? new AstNode[0] : MultiArray(nodes, 2);
+            AstNode.Dot dot = (AstNode.Dot)nodes[0];
+            return new AstNode.FuncCall(loc, dot.child, args.Prepend(dot.parent).ToArray(), is_method_call: true);
+        });
+        var FUNC_CALL = OneOf("FUNC_CALL", new Grammar[] {METHOD_CALL, NORM_FUNC_CALL});
         TERM.possible_patterns[4][0] = FUNC_CALL;
 
         var FIELD_ASSIGN = new Pattern("FIELD_ASSIGN", new Grammar[] {FULLNAME, EQUAL, EXPRESSION}, 
@@ -659,14 +665,23 @@ class AstNode {
     public class FuncCall : AstNode {
         readonly string name;
         readonly AstNode[] arguments;
+        readonly bool is_method_call;
 
-        public FuncCall(Location loc, string name, AstNode[] args) : base(loc) {
+        public FuncCall(Location loc, string name, AstNode[] args, bool is_method_call = false) : base(loc) {
             this.name = name;
             arguments = args;
+            this.is_method_call = is_method_call;
         }
 
         FuncInfo GetFuncInfo(Scope scope) {
-            Name maybe_func = scope.LookUp(name, location);
+            Name maybe_func;
+            if (is_method_call) {
+                AstNode parent_arg = arguments[0];
+                maybe_func = scope.GetClass(parent_arg, parent_arg.location).GetMember(name, location);
+            } else {
+                maybe_func = scope.LookUp(name, location);
+            }
+            
             Name.Func func;
             if (maybe_func is Name.Func) func = (Name.Func)maybe_func;
             else if (maybe_func is Name.Class) func = ((Name.Class)maybe_func).constructor; 
@@ -676,6 +691,7 @@ class AstNode {
             }
 
             string[] arg_types = Array.ConvertAll(arguments, arg => arg.Type(scope));
+            if (is_method_call) arg_types = arg_types.Skip(1).ToArray(); // the class itself
             FuncInfo func_info = func.BestFit(arg_types);
 
             if (func_info == null) {
@@ -1000,21 +1016,11 @@ class AstNode {
             this.child = child;
         }
 
-        public Name.Class GetClass(Scope scope) {
-            string cls_type = parent.Type(scope);
-            return (Name.Class)scope.LookUp(cls_type, location);
-        }
-
-        Name.Field GetField(Name.Class cls) {
-            Name result;
-            if (!cls.members.names.TryGetValue(child, out result)) {
-                Umi.Crash($"`{child}` does not exist in the `{cls.name}` class", location);
-            }
-            return (Name.Field)result;
-        }
+        Name.Field GetField(Name.Class cls) => (Name.Field)cls.GetMember(child, location);
         
-        public string Type(Name.Class cls) => GetField(cls).type;
+        public Name.Class GetClass(Scope scope) => scope.GetClass(parent, location);
 
+        public string Type(Name.Class cls) => GetField(cls).type;
         public override string Type(Scope scope) => Type(GetClass(scope));
 
         public override void GenIl(Scope scope) {
@@ -1110,6 +1116,14 @@ abstract class Name {
             this.name = name;
             this.members = members;
             constructor = new Func(loc);
+        }
+
+        public Name GetMember(string child, Location location) {
+            Name member;
+            if (!members.names.TryGetValue(child, out member)) {
+                Umi.Crash($"`{child}` does not exist in the `{name}` class", location);
+            }
+            return member;
         }
     }
 
@@ -1213,7 +1227,12 @@ class Scope {
         if (names.TryGetValue(name, out result)) return result;
         if (parent == null) Umi.Crash($"`{name}` is not defined in the current scope", loc);
         return parent.LookUp(name, loc);
-    } 
+    }
+
+    public Name.Class GetClass(AstNode parent, Location location) {
+        string cls_type = parent.Type(this);
+        return (Name.Class)LookUp(cls_type, location);
+    }
 
     public void Add(string name, Name value) {
         if (!names.TryAdd(name, value)) {
