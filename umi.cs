@@ -577,7 +577,7 @@ class AstNode {
     }
 
     public virtual string Type(Scope scope) => throw new NotImplementedException();
-    public virtual void CreateNameInfo(Scope scope) => throw new NotImplementedException();
+    public virtual void CreateNameInfo(Scope scope, AstNode context = null) => throw new NotImplementedException();
     public virtual void GenIl(Scope scope) => throw new NotImplementedException();
 
     public void ExpectType(string expected, Scope scope) {
@@ -865,7 +865,6 @@ class AstNode {
         // for definition and calling
         readonly string il_name;
         readonly string param_types;
-        string parent_class;
 
         readonly List<string> local_var_types = new List<string>();
 
@@ -893,19 +892,28 @@ class AstNode {
             param_types = string.Join(", ", parameter_types);
         }
 
-        public void SetParentClass(string pc) => parent_class = pc;
-
         string IlSignature(string n) {
-            string rt = return_type == name ? "void" : return_type; // constructor
+            string rt = il_name == ".ctor" ? "void" : return_type; // constructor
             return $"{rt} {n}({param_types})";
         }
 
-        public FuncInfo CreateFuncInfo(Scope scope) {
+        public override void CreateNameInfo(Scope scope, AstNode context = null) {
+            string parent_class = context == null ? null : ((AstNode.Class)context).name;
             string[] types = Array.ConvertAll(parameters, p => p.type);
+
             string call_word = is_static ? "call " : "callvirt ";
-            if (return_type == name) call_word = "newobj ";
+            if (il_name == ".ctor") call_word = "newobj ";
+
             string full_name = parent_class == null ? il_name : parent_class + "::" + il_name;
             FuncInfo func_info = new FuncInfo(types, return_type, call_word + IlSignature(full_name));
+            
+            // Add constructor to the class
+            if (il_name == ".ctor") {
+                var c = (Name.Class)scope.LookUp(parent_class, location);
+                c.constructor.functions.Add(func_info);
+            } else { // Other add the function to the scope
+                scope.AddFunction(location, name, func_info);
+            }
 
             DeclareVariables(scope, local_var_types);
             
@@ -916,16 +924,12 @@ class AstNode {
             if (paras.Count == 2 && paras[0].type == "void") {
                 Param p = paras[1];
                 block_scope.Add(p.name, new Name.Var(p.type, true, 0, p.location));
-            } else for (int i = 0; i < paras.Count; i++) { // TODO: add `this`
+            } else for (int i = 0; i < paras.Count; i++) {
                 Param p = paras[i];
                 var par = new Name.Var(p.type, true, i, p.location);
                 block_scope.Add(p.name, par);
             }
-
-            return func_info;
         }
-
-        public override void CreateNameInfo(Scope scope) => scope.AddFunction(location, name, CreateFuncInfo(scope));
 
         public override void GenIl(Scope scope) {
             Output.WriteLine($".method {(is_static ? "static " : "")}{IlSignature(il_name)}");
@@ -966,7 +970,7 @@ class AstNode {
             return_type = rt;
         }
 
-        public override void CreateNameInfo(Scope scope) {
+        public override void CreateNameInfo(Scope scope, AstNode _ = null) {
             scope.AddFunction(location, name, new FuncInfo(param_types, return_type, il));
         }
 
@@ -982,7 +986,7 @@ class AstNode {
             this.value = value;
         }
 
-        public override void CreateNameInfo(Scope scope) => scope.Add(name, new Name.Alias(location, value));
+        public override void CreateNameInfo(Scope scope, AstNode _) => scope.Add(name, new Name.Alias(location, value));
         public override void GenIl(Scope _) {}
     }
 
@@ -1001,7 +1005,13 @@ class AstNode {
             return (Name.Class)scope.LookUp(cls_type, location);
         }
 
-        Name.Field GetField(Name.Class cls) => ((Name.Field)cls.members.LookUp(child, location));
+        Name.Field GetField(Name.Class cls) {
+            Name result;
+            if (!cls.members.names.TryGetValue(child, out result)) {
+                Umi.Crash($"`{child}` does not exist in the `{cls.name}` class", location);
+            }
+            return (Name.Field)result;
+        }
         
         public string Type(Name.Class cls) => GetField(cls).type;
 
@@ -1009,8 +1019,7 @@ class AstNode {
 
         public override void GenIl(Scope scope) {
             parent.GenIl(scope);
-            Name.Class cls = GetClass(scope);
-            Output.WriteLine($"ldfld {Type(cls)} {cls.name}::{child}");
+            GetField(GetClass(scope)).GenDotIl();
         }
     }
 
@@ -1023,12 +1032,15 @@ class AstNode {
             this.name = name;
         }
 
-        public override void CreateNameInfo(Scope scope) => scope.Add(name, new Name.Field(location, type));
+        public override void CreateNameInfo(Scope scope, AstNode context) {
+            scope.Add(name, new Name.Field(location, type, name, ((AstNode.Class)context).name));
+        }
+
         public override void GenIl(Scope scope) => Output.WriteLine($".field {type} {name}\n");
     }
 
     public class Class : AstNode {
-        readonly string name;
+        public readonly string name;
         readonly AstNode[] statements;
         Scope class_scope;
 
@@ -1037,21 +1049,11 @@ class AstNode {
             this.statements = statements;
         }
 
-        public override void CreateNameInfo(Scope scope) {
+        public override void CreateNameInfo(Scope scope, AstNode _ = null) {
             class_scope = new Scope(scope);
-            var this_class = new Name.Class(location, name, class_scope);
-            scope.Add(name, this_class);
+            scope.Add(name, new Name.Class(location, name, class_scope));
 
-            foreach (AstNode stmt in statements) {
-                if (stmt is AstNode.FuncDef) { 
-                    var fd = (AstNode.FuncDef)stmt;
-                    fd.SetParentClass(name);
-                    if (fd.name == name) this_class.constructor.functions.Add(fd.CreateFuncInfo(class_scope));
-                    else fd.CreateNameInfo(class_scope);
-                } else {
-                    stmt.CreateNameInfo(class_scope);
-                }
-            }
+            foreach (AstNode stmt in statements) stmt.CreateNameInfo(class_scope, this);
         }
 
         public override void GenIl(Scope scope) {
@@ -1069,7 +1071,7 @@ class AstNode {
 
         public Program(AstNode[] s) : base(s[0].location) => global_statements = s;
 
-        public override void CreateNameInfo(Scope scope) {
+        public override void CreateNameInfo(Scope scope, AstNode _ = null) {
             foreach(AstNode statement in global_statements) statement.CreateNameInfo(scope);
         }
 
@@ -1162,9 +1164,26 @@ abstract class Name {
         public override void GenIl(Scope scope, AstNode.Identifier _) => node.GenIl(scope);
     }
 
-    public class Field : Name {
+    public class Field : Varish {
         public readonly string type;
-        public Field(Location defined_at, string type) : base(defined_at) => this.type = type;
+        readonly string name;
+        readonly string parent_class;
+
+        public Field(Location defined_at, string type, string name, string pc) : base(defined_at) {
+            this.type = type;
+            this.name = name;
+            this.parent_class = pc;
+        }
+
+        public override string Type(Scope _) => type;
+
+        public void GenDotIl() => Output.WriteLine($"ldfld {type} {parent_class}::{name}");
+
+        // This should only be called when the field is used without `this` in its class
+        public override void GenIl(Scope _, AstNode.Identifier __) {
+            Output.WriteLine("ldarg 0"); // This should? always work since `this` is always arg 0
+            GenDotIl();
+        }
     }
 
 }
