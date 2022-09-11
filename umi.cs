@@ -335,11 +335,14 @@ abstract class Grammar {
         string name = space + "_STATEMENT";
         var statement = OneOf(name, possibilities);
         var statements = Multiple<AstNode>(name + "S", new Grammar[] {statement, MNL});
-        return new Pattern(name + "S+NL", new Grammar[] {ONL, statements, ONL}, (_, nodes) => nodes[1]);
+        return new Pattern(name + "S+NL", new Grammar[] {ONL, statements, ONL}, (_, nodes) => nodes[1], optional: true);
     }
 
     static Pattern NewBlock(string name, Pattern statements) {
-        return new Pattern(name, new Grammar[] {LCURLY, statements, RCURLY}, (_, nodes) => nodes[1]);
+        return new Pattern(name, new Grammar[] {LCURLY, statements, RCURLY}, (loc, nodes) => {
+            if (nodes[1] == null) return new AstNode.Statements(loc, new AstNode[0], nodes[2].location);
+            return new AstNode.Statements(loc, MultiArray(nodes, 1), nodes[2].location);
+        });
     }
 
     // Shorthands
@@ -361,6 +364,7 @@ abstract class Grammar {
         var COMMA = new Tok(Token.Type.COMMA);
         var DOT = new Tok(Token.Type.DOT);
         var EQUAL = new Tok(Token.Type.EQUAL);
+        var CLASS = new Tok(Token.Type.CLASS);
         var IL = new Tok(Token.Type.IL);
         var ILF = new Tok(Token.Type.ILF);
         var IF = new Tok(Token.Type.IF);
@@ -481,17 +485,21 @@ abstract class Grammar {
             new Grammar[] {ONL, ELSE, LOCAL_BLOCK}, new Grammar[] {ONL, ELSE, null}
         }, (_, nodes) => nodes[2], optional: true);
         var IF_STMT = new Pattern("IF_STMT", new Grammar[] {IF, EXPRESSION, LOCAL_BLOCK, ELSE_PART}, (loc, nodes) => {
-            AstNode[] if_stmts = MultiArray(nodes, 2);
+            AstNode.Statements if_stmts = (AstNode.Statements)nodes[2];
             if (nodes[3] == null) return new AstNode.If(loc, nodes[1], if_stmts);
-            if (nodes[3] is AstNode.If || nodes[3] is AstNode.IfElse) {
-                return new AstNode.IfElse(loc, nodes[1], if_stmts, new AstNode[] {nodes[3]});
+            if (nodes[3] is AstNode.If) {
+                Location end;
+                if (nodes[3] is AstNode.IfElse) end = ((AstNode.IfElse)nodes[3]).else_statements.end;
+                else end = ((AstNode.If)nodes[3]).statements.end;
+                var single_stmt = new AstNode.Statements(nodes[3].location, new AstNode[] {nodes[3]}, end);
+                return new AstNode.IfElse(loc, nodes[1], if_stmts, single_stmt);
             }
-            return new AstNode.IfElse(loc, nodes[1], if_stmts, MultiArray(nodes, 3));
+            return new AstNode.IfElse(loc, nodes[1], if_stmts, (AstNode.Statements)nodes[3]);
         });
         ELSE_PART.possible_patterns[1][2] = IF_STMT;
 
         var WHILE = new Pattern("WHILE", new Grammar[] {new Tok(Token.Type.WHILE), EXPRESSION, LOCAL_BLOCK}, 
-            (loc, nodes) => new AstNode.While(loc, nodes[1], MultiArray(nodes, 2))
+            (loc, nodes) => new AstNode.While(loc, nodes[1], (AstNode.Statements)nodes[2])
         );
 
         var LOCAL_STMTS = NewStatements("LOCAL", new Grammar[] {VAR_DEF, VAR_ASSIGN, FIELD_ASSIGN, EXPRESSION, IF_STMT, WHILE});
@@ -552,11 +560,18 @@ abstract class Grammar {
 
         var CLASS_STMTS = NewStatements("CLASS_STMTS", new Grammar[] {METHOD, FIELD});
         var CLASS_BLOCK = NewBlock("CLASS_BLOCK", CLASS_STMTS);
-        var CLASS = new Pattern("CLASS", new Grammar[] {new Tok(Token.Type.CLASS), IDENTIFIER, CLASS_BLOCK}, (loc, nodes) => {
-            return new AstNode.Class(loc, IdentifierText(nodes, 1), MultiArray(nodes, 2));
+        var CLASS_DEF = new Pattern("CLASS_DEF", new Grammar[] {CLASS, IDENTIFIER, CLASS_BLOCK}, (loc, nodes) => {
+            return new AstNode.Class(loc, IdentifierText(nodes, 1), (AstNode.Statements)nodes[2]);
         });
 
-        var GLOBAL_STATEMENTS = NewStatements("GLOBAL", new Grammar[] {FUNC_DEF, IL_FUNC, ALIAS, CLASS});
+        var IL_CLASS_STMTS = NewStatements("IL_CLASS_STMTS", new Grammar[] {IL_FUNC});
+        var IL_CLASS_BLOCK = NewBlock("IL_CLASS_BLOCK", IL_CLASS_STMTS);
+        var IL_CLASS = new Pattern("IL_CLASS", new Grammar[] {IL, CLASS, IDENTIFIER, STRING, IL_CLASS_BLOCK}, (loc, nodes) => {
+            string il = ((AstNode.StringLiteral)nodes[3]).content;
+            return new AstNode.IlClass(loc, IdentifierText(nodes, 2), il, (AstNode.Statements)nodes[4]);
+        });
+
+        var GLOBAL_STATEMENTS = NewStatements("GLOBAL", new Grammar[] {FUNC_DEF, IL_FUNC, ALIAS, CLASS_DEF, IL_CLASS});
 
         var PROGRAM = new Pattern("PROGRAM", new Grammar[] {GLOBAL_STATEMENTS}, null);
         return PROGRAM;
@@ -765,11 +780,25 @@ class AstNode {
         }
     }
     
+    public class Statements : AstNode {
+        public readonly AstNode[] statements;
+        public readonly Location end;
+
+        public Statements(Location loc, AstNode[] statements, Location end): base(loc) {
+            this.statements = statements;
+            this.end = end;
+        }
+
+        public override void GenIl(Scope scope) { 
+            foreach (var stmt in statements) stmt.GenIl(scope);
+        }
+    }
+
     // TODO: Make If, etc HAVE a Block not inherit it
     public abstract class Block : AstNode {
-        protected readonly AstNode[] statements;
+        public readonly Statements statements;
         protected Scope block_scope;
-        public Block(Location loc, AstNode[] statements) : base(loc) => this.statements = statements;
+        public Block(Location loc, Statements statements) : base(loc) => this.statements = statements;
 
         // This mainly exists as a separate function for IfElse
         protected static Scope SubScope(Scope scope, List<string> local_var_types, AstNode[] stmts) {
@@ -780,7 +809,7 @@ class AstNode {
                     string name = vardef.assignment.name;
                     int i = local_var_types.Count;
                     var variable = new Name.Var(vardef.type, false, i, vardef.location);
-                    local_var_types.Add(variable.type);
+                    local_var_types.Add(scope.GetIlType(variable.type, stmt.location));
                     new_scope.Add(name, variable);
                 } else if (stmt is AstNode.Block) {
                     ((AstNode.Block)stmt).DeclareVariables(new_scope, local_var_types);
@@ -790,20 +819,16 @@ class AstNode {
         }
 
         protected virtual void DeclareVariables(Scope scope, List<string> local_var_types) {
-            block_scope = SubScope(scope, local_var_types, statements);
+            block_scope = SubScope(scope, local_var_types, statements.statements);
         }
 
-        protected static void GenStatements(AstNode[] stmts, Scope scope) {
-            foreach (var statement in stmts) statement.GenIl(scope);
-        }
-
-        protected void GenStatements() => GenStatements(statements, block_scope);
+        protected void GenStatements() => statements.GenIl(block_scope);
     }
 
     public class If : Block {
         protected readonly AstNode condition;
 
-        public If(Location loc, AstNode condition, AstNode[] statements) : base(loc, statements) {
+        public If(Location loc, AstNode condition, Statements statements) : base(loc, statements) {
             this.condition = condition;
         }
 
@@ -811,52 +836,47 @@ class AstNode {
         protected string IfIl(Scope scope) {
             condition.ExpectType("bool", scope);
             condition.GenIl(scope);
-            // This is the first location of the last statement
-            // Idk if this will cause errors later
-            string if_end = statements.Last().location.Label();
+            string if_end = statements.end.Label();
             Output.WriteLine($"brfalse {if_end}");
             GenStatements();
             return if_end;
         }
 
-        public override void GenIl(Scope scope) {
-            string end = IfIl(scope);
-            Output.WriteLine($"{end}:");
-        }
+        public override void GenIl(Scope scope) => Output.WriteLabel(IfIl(scope));
     }
 
     public class IfElse : If {
-        readonly AstNode[] else_statements;
+        public readonly Statements else_statements;
         Scope else_scope;
 
-        public IfElse(Location loc, AstNode cond, AstNode[] if_stmts, AstNode[] else_stmts) : base(loc, cond, if_stmts) {
+        public IfElse(Location loc, AstNode cond, Statements if_stmts, Statements else_stmts) : base(loc, cond, if_stmts) {
             else_statements = else_stmts;
         }
 
         protected override void DeclareVariables(Scope scope, List<string> local_var_types) {
             base.DeclareVariables(scope, local_var_types);
-            else_scope = SubScope(scope, local_var_types, else_statements);
+            else_scope = SubScope(scope, local_var_types, else_statements.statements);
         }
 
         public override void GenIl(Scope scope) {
             string if_end = IfIl(scope);
-            string else_end = else_statements.Last().location.Label();
+            string else_end = else_statements.end.Label();
             Output.WriteLine($"br {else_end}");
-            Output.WriteLine($"{if_end}:");
-            GenStatements(else_statements, else_scope);
-            Output.WriteLine($"{else_end}:");
+            Output.WriteLabel(if_end);
+            else_statements.GenIl(else_scope);
+            Output.WriteLabel(else_end);
         }
     }
 
     public class While : If {
-        public While(Location loc, AstNode cond, AstNode[] stmts) : base(loc, cond, stmts) {}
+        public While(Location loc, AstNode cond, Statements stmts) : base(loc, cond, stmts) {}
 
         public override void GenIl(Scope scope) {
             string cond_label = condition.location.Label();
-            Output.WriteLine($"{cond_label}:");
+            Output.WriteLabel(cond_label);
             string end = IfIl(scope);
             Output.WriteLine($"br {cond_label}");
-            Output.WriteLine($"{end}:");
+            Output.WriteLabel(end);
         }
     }
 
@@ -884,7 +904,7 @@ class AstNode {
 
         readonly List<string> local_var_types = new List<string>();
 
-        public FuncDef(Location loc, List<AstNode> nodes, bool is_static) : base(loc, ((Multiple<AstNode>)nodes[5]).ToArray()) {
+        public FuncDef(Location loc, List<AstNode> nodes, bool is_static) : base(loc, (Statements)nodes[5]) {
             this.is_static = is_static;
             return_type = ((Identifier)nodes[0]).content;
             name = ((Identifier)nodes[1]).content;
@@ -1045,28 +1065,36 @@ class AstNode {
         public override void GenIl(Scope scope) => Output.WriteLine($".field {type} {name}\n");
     }
 
-    public class Class : AstNode {
+    public class IlClass : AstNode {
         public readonly string name;
-        readonly AstNode[] statements;
-        Scope class_scope;
+        readonly string il_name;
+        protected readonly Statements statements;
+        protected Scope class_scope;
 
-        public Class(Location loc, string name, AstNode[] statements) : base(loc) {
+        public IlClass(Location loc, string name, string il_name, Statements statements) : base(loc) {
             this.name = name;
+            this.il_name = il_name;
             this.statements = statements;
         }
 
         public override void CreateNameInfo(Scope scope, AstNode _ = null) {
             class_scope = new Scope(scope);
-            scope.Add(name, new Name.Class(location, name, class_scope));
+            scope.Add(name, new Name.Class(location, name, class_scope, il_name));
 
-            foreach (AstNode stmt in statements) stmt.CreateNameInfo(class_scope, this);
+            foreach (AstNode stmt in statements.statements) stmt.CreateNameInfo(class_scope, this);
         }
+
+        public override void GenIl(Scope _) {}
+    }
+
+    public class Class : IlClass {
+        public Class(Location loc, string name, Statements statements) : base(loc, name, name, statements) {}
 
         public override void GenIl(Scope scope) {
             Output.WriteLine($".class {name}");
             Output.WriteLine("{");
             Output.Indent();
-            foreach (AstNode stmt in statements) stmt.GenIl(class_scope);
+            statements.GenIl(class_scope);
             Output.Unindent();
             Output.WriteLine("}\n");
         }
@@ -1092,11 +1120,22 @@ class AstNode {
 
 class Output {
     static int indentation = 0;
+    // With chains of if else, they all go to the end so they create duplicate labels
+    static HashSet<string> labels = new HashSet<string>();
 
     public static void WriteLine(string il_code) {
         // TODO allow the output file to be changed
         File.AppendAllText("output.il", new string(' ', indentation) + il_code + "\n");
     }
+
+    public static void WriteLabel(string label) {
+        // Prevent duplicates
+        if (!labels.Contains(label)) {
+            Output.WriteLine($"{label}:");
+            labels.Add(label);
+        }
+    }
+
     public static void Indent() => indentation += 4;
     public static void Unindent() => indentation -= 4;
 }
@@ -1109,13 +1148,15 @@ abstract class Name {
 
     public class Class : Name {
         public readonly string name;
+        public readonly string il_name;
         public readonly Func constructor;
         public readonly Scope members;
 
-        public Class(Location loc, string name, Scope members) : base(loc) {
+        public Class(Location loc, string name, Scope members, string il_name) : base(loc) {
             this.name = name;
             this.members = members;
             constructor = new Func(loc);
+            this.il_name = il_name;
         }
 
         public Name GetMember(string child, Location location) {
@@ -1234,6 +1275,8 @@ class Scope {
         return (Name.Class)LookUp(cls_type, location);
     }
 
+    public string GetIlType(string type, Location location) => ((Name.Class)LookUp(type, location)).il_name;
+    
     public void Add(string name, Name value) {
         if (!names.TryAdd(name, value)) {
             Umi.Crash($"`{name}` already defined at {names[name].defined_at}", value.defined_at);

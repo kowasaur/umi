@@ -1,5 +1,10 @@
 # This is the standard library, included by default in all umi programs
 
+# TODO: capitalise the names
+il class string "string" {}
+il class int32 "int32" {}
+il class char "char" {}
+
 ilf void print(string) "[mscorlib]System.Console::WriteLine"
 ilf void print(char) "[mscorlib]System.Console::WriteLine"
 ilf void print(int32) "[mscorlib]System.Console::WriteLine"
