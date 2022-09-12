@@ -1,10 +1,10 @@
-string createHello(string name) {
+String createHello(String name) {
     # Implicit return
     "Hello, " + name
 }
 
-void greet(string name, int32 age) {
-    string message = createHello(name)
+Void greet(String name, Int age) {
+    String message = createHello(name)
     consoleWrite(message)
     message = " aged "
     consoleWrite(message)
@@ -12,11 +12,11 @@ void greet(string name, int32 age) {
 }
 
 # Example of function overloading
-void greet(int32 age) {
+Void greet(Int age) {
     greet("Tim", age)
 }
 
-void main() {
+Void main() {
     greet("Joe", 3333)
     greet(52)
 }

@@ -2,14 +2,14 @@
 # are evaluated each time they are referenced
 alias SECONDS_IN_HOUR = 60 * 60
 
-int32 hoursToSeconds(int32 hours) { hours * SECONDS_IN_HOUR }
+Int hoursToSeconds(Int hours) { hours * SECONDS_IN_HOUR }
 
-void main() {
-    string message = "hello!"
+Void main() {
+    String message = "hello!"
     print(message)
 
-    int32 number = 32
-    int32 number_2 = number
+    Int number = 32
+    Int number_2 = number
     print(number)
     print(number_2)
 
@@ -17,7 +17,7 @@ void main() {
     print(message)
 
     # the same characters C# supports should work
-    char utf16 = '海' 
+    Char utf16 = '海' 
     print(utf16)
 
     print(hoursToSeconds(30))

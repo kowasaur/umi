@@ -1,9 +1,9 @@
-void main() {
-    int32 plus = 9 + 10
-    int32 minus = plus - 3
-    int32 mul = 3 * 5
-    int32 div = 75 / mul
-    int32 mod = 25 % 3
+Void main() {
+    Int plus = 9 + 10
+    Int minus = plus - 3
+    Int mul = 3 * 5
+    Int div = 75 / mul
+    Int mod = 25 % 3
     print(plus)
     print(minus)
     print(mul)

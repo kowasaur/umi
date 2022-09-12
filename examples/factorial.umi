@@ -1,9 +1,9 @@
-int32 !(int32 n, void _) {
+Int !(Int n, Void _) {
     if n == 0 { 1 }
     else { n * (n - 1)! }
 }
 
-void main() {
+Void main() {
     print(0!)  #         1
     print(1!)  #         1
     print(2!)  #         2

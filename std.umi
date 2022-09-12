@@ -1,46 +1,47 @@
 # This is the standard library, included by default in all umi programs
 
-# TODO: capitalise the names
-il class string "string" {}
-il class int32 "int32" {}
-il class char "char" {}
+il class Void "void" {}
+il class Int "int32" {}
+il class Bool "bool" {}
+il class Char "char" {}
+il class String "string" {}
 
-ilf void print(string) "[mscorlib]System.Console::WriteLine"
-ilf void print(char) "[mscorlib]System.Console::WriteLine"
-ilf void print(int32) "[mscorlib]System.Console::WriteLine"
-ilf void print(bool) "[mscorlib]System.Console::WriteLine"
+ilf Void print(String) "[mscorlib]System.Console::WriteLine"
+ilf Void print(Char) "[mscorlib]System.Console::WriteLine"
+ilf Void print(Int) "[mscorlib]System.Console::WriteLine"
+ilf Void print(Bool) "[mscorlib]System.Console::WriteLine"
 
-ilf void consoleWrite(string) "[mscorlib]System.Console::Write"
-ilf string input() "[mscorlib]System.Console::ReadLine"
+ilf Void consoleWrite(String) "[mscorlib]System.Console::Write"
+ilf String input() "[mscorlib]System.Console::ReadLine"
 
 # TODO: Maybe add inline functions
-string input(string prompt) {
+String input(String prompt) {
     consoleWrite(prompt)
     input()
 }
 
-ilf string +(string, string) "string::Concat"
+ilf String +(String, String) "string::Concat"
 
 # Arithmetic Operators
-il int32 +(int32, int32) "add"
-il int32 -(int32, int32) "sub"
-il int32 *(int32, int32) "mul"
-il int32 /(int32, int32) "div"
-il int32 %(int32, int32) "rem"
-il int32 -(void, int32) "neg"
+il Int +(Int, Int) "add"
+il Int -(Int, Int) "sub"
+il Int *(Int, Int) "mul"
+il Int /(Int, Int) "div"
+il Int %(Int, Int) "rem"
+il Int -(Void, Int) "neg"
 
 # Comparison Operators
-ilf bool ==(string, string) "string::op_Equality"
-il bool ==(int32, int32) "ceq"
-il bool ==(bool, bool) "ceq"
-il bool >(int32, int32) "cgt"
-il bool <(int32, int32) "clt"
-bool >=(int32 a, int32 b) { !(a < b) }
-bool <=(int32 a, int32 b) { !(a > b) }
+ilf Bool ==(String, String) "string::op_Equality"
+il Bool ==(Bool, Bool) "ceq"
+il Bool ==(Int, Int) "ceq"
+il Bool >(Int, Int) "cgt"
+il Bool <(Int, Int) "clt"
+Bool >=(Int a, Int b) { !(a < b) }
+Bool <=(Int a, Int b) { !(a > b) }
 
 # Logical Operators
 # Since these operations are bitwise, I'm thinking to 
 # use the same symbols for booleans and integers
-il bool &&(bool, bool) "and"
-il bool ||(bool, bool) "or"
-bool !(void _, bool a) { a == false }
+il Bool &&(Bool, Bool) "and"
+il Bool ||(Bool, Bool) "or"
+Bool !(Void _, Bool a) { a == false }

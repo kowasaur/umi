@@ -1,12 +1,12 @@
-void main() {
-    string variable = "unmodified"
+Void main() {
+    String variable = "unmodified"
     if true {
         variable = "modified"
         print("this should print")
     }
 
     if 1 == 1 && (2 == 2) {
-        string variable = "this is block scoped"
+        String variable = "this is block scoped"
         print(variable)
     }
 
