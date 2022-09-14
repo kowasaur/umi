@@ -514,27 +514,39 @@ abstract class Grammar {
         var PARAM_LIST = Multiple<AstNode.Param>("PARAM_LIST", new Grammar[] {PARAM, COMMA}, optional: true);
         var FUNC_DEF = new Pattern("FUNC_DEF", 
             new Grammar[] {IDENTIFIER, FUNC_IDEN, LPARAN, PARAM_LIST, RPARAN, LOCAL_BLOCK},
-            (loc, nodes) => new AstNode.FuncDef(loc, nodes, true)
+            (loc, nodes) => {
+                string return_type = IdentifierText(nodes, 0);
+                string name = IdentifierText(nodes, 1);
+                AstNode.Param[] parameters = null;
+                if (nodes[3] != null) parameters = ((AstNode.Multiple<AstNode.Param>)nodes[3]).ToArray();
+                return new AstNode.FuncDef(loc, true, return_type, name, (AstNode.Statements)nodes[5], parameters);
+            }
+        );
+
+        var FUNC_TYPE_NAME = new Pattern("FUNC_TYPE_NAME", new Grammar[] {IDENTIFIER, FUNC_IDEN.NewOptional("OPT_IDEN")}, 
+            (loc, nodes) => {
+                if (nodes[1] == null) nodes[1] = nodes[0];
+                // Maybe a Field shouldn't be used
+                return new AstNode.Field(loc, IdentifierText(nodes, 0), IdentifierText(nodes, 1));
+            }
         );
 
         var TYPE_LIST = Multiple<AstNode.Identifier>("TYPE_LIST", new Grammar[] {IDENTIFIER, COMMA}, optional: true);
         var IL_FUNC = new Pattern("IL_FUNC", 
-            new Grammar[] {OneOf("ILish", new Grammar[] {IL, ILF}), IDENTIFIER, FUNC_IDEN, LPARAN, TYPE_LIST, RPARAN, STRING},
+            new Grammar[] {OneOf("ILish", new Grammar[] {IL, ILF}), FUNC_TYPE_NAME, LPARAN, TYPE_LIST, RPARAN, STRING},
             (loc, nodes) => {
-                string type = IdentifierText(nodes, 1);
-                string name = IdentifierText(nodes, 2);
-                string il = ((AstNode.StringLiteral)nodes[6]).content;
-                
+                AstNode.Field type_name = (AstNode.Field)nodes[1];
+                string il = ((AstNode.StringLiteral)nodes[5]).content;
                 string[] param_types;
-                if (nodes[4] == null) {
+                if (nodes[3] == null) {
                     param_types = new string[0];
                 } else {
-                    var values = ((AstNode.Multiple<AstNode.Identifier>)nodes[4]).ToArray();
+                    var values = ((AstNode.Multiple<AstNode.Identifier>)nodes[3]).ToArray();
                     param_types = Array.ConvertAll(values, v => v.content);
                 }
 
                 bool is_ilf = ((AstNode.Tok)nodes[0]).token.type == Token.Type.ILF;
-                return new AstNode.IlFunc(loc, name, il, param_types, type, is_ilf);
+                return new AstNode.IlFunc(loc, type_name.name, il, param_types, type_name.type, is_ilf);
             }
         );
 
@@ -548,10 +560,13 @@ abstract class Grammar {
         );
         
         var METHOD = new Pattern("METHOD", 
-            new Grammar[] {IDENTIFIER, FUNC_IDEN.NewOptional("OPT_IDEN"), LPARAN, PARAM_LIST, RPARAN, LOCAL_BLOCK},
+            new Grammar[] {FUNC_TYPE_NAME, LPARAN, PARAM_LIST, RPARAN, LOCAL_BLOCK},
             (loc, nodes) => {
-                if (nodes[1] == null) nodes[1] = nodes[0];
-                return new AstNode.FuncDef(loc, nodes, false);
+                string return_type = ((AstNode.Field)nodes[0]).type;
+                string name = ((AstNode.Field)nodes[0]).name;
+                AstNode.Param[] parameters = null;
+                if (nodes[2] != null) parameters = ((AstNode.Multiple<AstNode.Param>)nodes[2]).ToArray();
+                return new AstNode.FuncDef(loc, false, return_type, name, (AstNode.Statements)nodes[4], parameters);
             }
         );
 
@@ -889,36 +904,38 @@ class AstNode {
         public override void GenIl(Scope scope) => assignment.GenIl(scope);
     }
 
+    static string ParentClass(AstNode context) => context == null ? null : ((AstNode.IlClass)context).name;
+
+    void AddToScope(Scope scope, string parent_class, FuncInfo func_info, string name, string return_type) {
+        if (name == return_type) { // Add constructor to the class
+            var c = (Name.Class)scope.LookUp(parent_class, location);
+            c.constructor.functions.Add(func_info);
+        } else { // Add the function to the scope
+            scope.AddFunction(location, name, func_info);
+        }
+    }
+
     public class FuncDef : Block {
         public readonly string name;
         readonly string return_type;
-        readonly Param[] parameters = new Param[0];
+        readonly Param[] parameters;
         readonly bool is_static;
 
         FuncInfo.Ord func_info;
         readonly List<string> local_var_types = new List<string>();
 
-        public FuncDef(Location loc, List<AstNode> nodes, bool is_static) : base(loc, (Statements)nodes[5]) {
+        public FuncDef(Location loc, bool is_static, string rt, string name, Statements stmts, Param[] paras): base(loc, stmts) {
             this.is_static = is_static;
-            return_type = ((Identifier)nodes[0]).content;
-            name = ((Identifier)nodes[1]).content;
-            if (nodes[3] != null) {
-                parameters = ((AstNode.Multiple<AstNode.Param>)nodes[3]).ToArray();
-            }
+            this.name = name;
+            return_type = rt;
+            parameters = paras ?? new Param[0];
         }
 
         public override void CreateNameInfo(Scope scope, AstNode context = null) {
-            string parent_class = context == null ? null : ((AstNode.Class)context).name;
+            string parent_class = ParentClass(context);
             func_info = new FuncInfo.Ord(parameters, return_type, is_static, name, location, parent_class);
             
-            // Add constructor to the class
-            if (name == return_type) {
-                var c = (Name.Class)scope.LookUp(parent_class, location);
-                c.constructor.functions.Add(func_info);
-            } else { // Other add the function to the scope
-                scope.AddFunction(location, name, func_info);
-            }
-
+            AddToScope(scope, parent_class, func_info, name, return_type);
             DeclareVariables(scope, local_var_types);
             
             List<Param> paras = parameters.ToList();
@@ -976,14 +993,11 @@ class AstNode {
             this.is_ilf = is_ilf;
         }
 
-        public override void CreateNameInfo(Scope scope, AstNode _ = null) {
+        public override void CreateNameInfo(Scope scope, AstNode context = null) {
             FuncInfo func_info;
-            if (is_ilf) {
-                func_info = new FuncInfo.Ord(param_types, return_type, true, il, location, null);
-            } else {
-                func_info = new FuncInfo.Il(param_types, return_type, il);
-            }
-            scope.AddFunction(location, name, func_info);
+            if (is_ilf) func_info = new FuncInfo.Ord(param_types, return_type, true, il, location, null);
+            else func_info = new FuncInfo.Il(param_types, return_type, il);
+            AddToScope(scope, ParentClass(context), func_info, name, return_type);
         }
 
         public override void GenIl(Scope _) {}
@@ -1026,8 +1040,8 @@ class AstNode {
     }
 
     public class Field : AstNode {
-        readonly string type;
-        readonly string name;
+        public readonly string type;
+        public readonly string name;
 
         public Field(Location loc, string type, string name) : base(loc) {
             this.type = type;

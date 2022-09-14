@@ -2,7 +2,6 @@ class Person {
     String name
     Int age
 
-    # TODO: use the constructor keyword instead
     Person(String name, Int a) {
         this.name = name
         age = a
@@ -18,10 +17,26 @@ class Person {
     Int ageAfterYears(Int years) { age + years }
 }
 
+il class IntList "class [mscorlib]System.Collections.Generic.List`1<int32>" {
+    il IntList() "newobj void class [mscorlib]System.Collections.Generic.List`1<int32>::'.ctor'()"
+    il Void add(Int) "callvirt void class [mscorlib]System.Collections.Generic.List`1<int32>::Add(!0)"
+    il Int get(Int) "callvirt !0 class [mscorlib]System.Collections.Generic.List`1<int32>::get_Item(int32)"
+}
+
+IntList add10(IntList i) {
+    i.add(10)
+    i
+}
+
 Void main() {
     Person p = Person("Barry", 63)
     print(p.name)
     print(p.age)
     p.introduce()
     print(p.ageAfterYears(15))
+
+    IntList list = IntList()
+    list = add10(list)
+    list = add10(list)
+    print(list.get(1))
 }
