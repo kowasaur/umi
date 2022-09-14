@@ -5,7 +5,7 @@ alias SECONDS_IN_HOUR = 60 * 60
 Int hoursToSeconds(Int hours) { hours * SECONDS_IN_HOUR }
 
 Void main() {
-    String message = "hello!"
+    mut String message = "hello!"
     print(message)
 
     Int number = 32

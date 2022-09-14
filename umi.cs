@@ -45,7 +45,7 @@ class Token {
         STRING, CHAR, INTEGER, BOOLEAN,
         LPARAN, RPARAN, LCURLY, RCURLY,
         NEWLINE, COMMA, DOT, EQUAL,
-        IL, ILF, ALIAS, CLASS,
+        IL, ILF, ALIAS, CLASS, MUT,
         IF, ELSE, WHILE
     }
 
@@ -129,6 +129,9 @@ class Lexer {
                         break;
                     case "alias":
                         type = Token.Type.ALIAS;
+                        break;
+                    case "mut":
+                        type = Token.Type.MUT;
                         break;
                     case "true":
                         type = Token.Type.BOOLEAN;
@@ -367,6 +370,7 @@ abstract class Grammar {
         var COMMA = new Tok(Token.Type.COMMA);
         var DOT = new Tok(Token.Type.DOT);
         var EQUAL = new Tok(Token.Type.EQUAL);
+        var MUT = new Tok(Token.Type.MUT, optional: true);
         var CLASS = new Tok(Token.Type.CLASS);
         var IL = new Tok(Token.Type.IL);
         var ILF = new Tok(Token.Type.ILF);
@@ -477,9 +481,9 @@ abstract class Grammar {
             (loc, nodes) => new AstNode.VarAssign(loc, IdentifierText(nodes, 0), nodes[2])
         );
 
-        var VAR_DEF = new Pattern("VAR_DEF", new Grammar[] {IDENTIFIER, VAR_ASSIGN}, (loc, nodes) => {
-            string type = IdentifierText(nodes, 0);
-            return new AstNode.VarDef(loc, type, (AstNode.VarAssign)nodes[1]);
+        var VAR_DEF = new Pattern("VAR_DEF", new Grammar[] {MUT, IDENTIFIER, VAR_ASSIGN}, (loc, nodes) => {
+            string type = IdentifierText(nodes, 1);
+            return new AstNode.VarDef(loc, type, (AstNode.VarAssign)nodes[2], nodes[0] != null);
         });
 
         var LOCAL_BLOCK = NewBlock("LOCAL_BLOCK", null);
@@ -753,23 +757,22 @@ class AstNode {
 
         public override void GenIl(Scope scope) {
             Name maybe_var = scope.LookUp(name, location);
-            if (!(maybe_var is Name.Var)) {
-                if (maybe_var is Name.Field) {
-                    var this_tok = new AstNode.Tok(new Token(Token.Type.NOTHING, location, "this"));
-                    var dot = new AstNode.Dot(location, new AstNode.Identifier(this_tok), name);
-                    new AstNode.FieldAssign(location, dot, value).GenIl(scope);
-                    return;
-                } else {
-                    Umi.Crash("Can only reassign local variables", location);
-                }
+            if (maybe_var is Name.Field) {
+                var this_tok = new AstNode.Tok(new Token(Token.Type.NOTHING, location, "this"));
+                var dot = new AstNode.Dot(location, new AstNode.Identifier(this_tok), name);
+                new AstNode.FieldAssign(location, dot, value).GenIl(scope);
+                return;
+            } else if (!(maybe_var is Name.Var)) {
+                Umi.Crash("Can only reassign local variables and fields", location);
             }
             
             Name.Var variable = (Name.Var)maybe_var;
             if (variable.defined_at > location) {
                 Umi.Crash($"Can not assign to variable `{name}` before it is defined", location);
             }
-
+            variable.MutablilityCheck(location);
             value.ExpectType(variable.type, scope);
+
             value.GenIl(scope);
             Output.WriteLine($"stloc {variable.index}");
         }
@@ -820,12 +823,7 @@ class AstNode {
             var new_scope = new Scope(scope);
             foreach (var stmt in stmts) {
                 if (stmt is AstNode.VarDef) {
-                    var vardef = (AstNode.VarDef)stmt;
-                    string name = vardef.assignment.name;
-                    int i = local_var_types.Count;
-                    var variable = new Name.Var(vardef.type, false, i, vardef.location);
-                    local_var_types.Add(scope.GetIlType(variable.type, stmt.location));
-                    new_scope.Add(name, variable);
+                    ((AstNode.VarDef)stmt).DeclareVariable(scope, new_scope, local_var_types);
                 } else if (stmt is AstNode.Block) {
                     ((AstNode.Block)stmt).DeclareVariables(new_scope, local_var_types);
                 }
@@ -896,12 +894,19 @@ class AstNode {
     }
 
     public class VarDef : AstNode {
-        public readonly string type;
-        public readonly VarAssign assignment;
+        readonly string type;
+        readonly VarAssign assignment;
+        readonly bool is_mutable;
 
-        public VarDef(Location loc, string type, VarAssign assignment) : base(loc) {
+        public VarDef(Location loc, string type, VarAssign assignment, bool is_mutable) : base(loc) {
             this.type = type;
             this.assignment = assignment;
+            this.is_mutable = is_mutable;
+        }
+
+        public void DeclareVariable(Scope scope, Scope new_scope, List<string> local_var_types) {
+            new_scope.Add(assignment.name, new Name.Var(type, false, local_var_types.Count, location, is_mutable));
+            local_var_types.Add(scope.GetIlType(type, location));
         }
 
         public override void GenIl(Scope scope) => assignment.GenIl(scope);
@@ -1190,12 +1195,23 @@ abstract class Name {
         public readonly string type;
         public readonly int index;
         readonly bool is_param; // local variable or parameter
-        public Var(string type, bool is_param, int index, Location defined_at) : base(defined_at) {
+        readonly bool is_mutable;
+
+        public Var(string type, bool is_param, int index, Location defined_at, bool mutable = false) : base(defined_at) {
             this.type = type;
             this.is_param = is_param;
             this.index = index;
+            is_mutable = mutable;
         }
+
+        public void MutablilityCheck(Location assign_loc) {
+            if (!is_mutable && assign_loc.line > defined_at.line) {
+                Umi.Crash($"Can not reassign immutable variables", assign_loc);
+            }
+        }
+
         public override string Type(Scope _) => type;
+
         public override void GenIl(Scope _, AstNode.Identifier context) {
             if (defined_at > context.location) {
                 Umi.Crash($"Can not use variable `{context.content}` before it is defined", context.location);

@@ -4,7 +4,7 @@ String createHello(String name) {
 }
 
 Void greet(String name, Int age) {
-    String message = createHello(name)
+    mut String message = createHello(name)
     consoleWrite(message)
     message = " aged "
     consoleWrite(message)

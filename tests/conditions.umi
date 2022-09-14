@@ -1,5 +1,5 @@
 Void main() {
-    String variable = "unmodified"
+    mut String variable = "unmodified"
     if true {
         variable = "modified"
         print("this should print")

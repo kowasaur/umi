@@ -23,6 +23,9 @@ Note that the .expected files are the expected output of the corresponding .umi 
 -   `while` loops
 -   Aliases
 -   Classes
+-   Immutability by default
+    -   Immutable references like `final`
+    -   Make variables mutable with `mut` keyword
 
 ### Planned
 
@@ -37,6 +40,3 @@ Note that the .expected files are the expected output of the corresponding .umi 
 -   String interpolation
 -   Anonymous functions
 -   Switch cases
--   Immutability by default
-    -   Immutable references like `final`
-    -   Make variable mutable with `mut` keyword

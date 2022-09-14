@@ -35,7 +35,7 @@ Void main() {
     p.introduce()
     print(p.ageAfterYears(15))
 
-    IntList list = IntList()
+    mut IntList list = IntList()
     list = add10(list)
     list = add10(list)
     print(list.get(1))

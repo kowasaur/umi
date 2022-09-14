@@ -10,7 +10,7 @@ alias SIZE = 60
 Int useRule(Int p) { RULE & (1 << p) >> p }
 
 Void printState(IntArray state) {
-    Int i = 0
+    mut Int i = 0
     while i < SIZE {
         if state.get(i) == 1 { consoleWrite('*') }
         else { consoleWrite(' ') }
@@ -20,7 +20,7 @@ Void printState(IntArray state) {
 }
 
 IntArray nextState(IntArray state) {
-    Int i = 1
+    mut Int i = 1
     IntArray new_state = IntArray(SIZE)
     while i < SIZE - 1 {
         Int pattern = (state.get(i - 1) << 2) | (state.get(i) << 1) | state.get(i + 1)
@@ -32,10 +32,10 @@ IntArray nextState(IntArray state) {
 }
 
 Void main() {
-    IntArray state = IntArray(SIZE)
+    mut IntArray state = IntArray(SIZE)
     state.set(SIZE - 1, 1)
 
-    Int i = 0
+    mut Int i = 0
     while i < SIZE - 1 {
         printState(state)
         state = nextState(state)

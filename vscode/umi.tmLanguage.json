@@ -16,7 +16,8 @@
             "patterns": [
                 { "name": "keyword.other", "match": "\\b(il|ilf)\\b" },
                 { "name": "keyword.control", "match": "\\b(if|else|while)\\b" },
-                { "name": "storage.type", "match": "\\b(class|alias)\\b" }
+                { "name": "storage.type", "match": "\\b(class|alias)\\b" },
+                { "name": "storage.modifier", "match": "\\b(mut)\\b" }
             ]
         },
         "booleans": { "name": "constant.language.boolean", "match": "\\b(true|false)\\b" },
