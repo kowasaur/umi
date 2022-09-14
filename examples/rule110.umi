@@ -1,0 +1,44 @@
+il class IntArray "int32[]" {
+    il IntArray(Int) "newarr int32"
+    il Void set(Int, Int) "stelem int32"
+    il Int get(Int) "ldelem int32"
+}
+
+alias RULE = 110
+alias SIZE = 60
+
+Int useRule(Int p) { RULE & (1 << p) >> p }
+
+Void printState(IntArray state) {
+    Int i = 0
+    while i < SIZE {
+        if state.get(i) == 1 { consoleWrite('*') }
+        else { consoleWrite(' ') }
+        i = i + 1
+    }
+    consoleWrite('\n')
+}
+
+IntArray nextState(IntArray state) {
+    Int i = 1
+    IntArray new_state = IntArray(SIZE)
+    while i < SIZE - 1 {
+        Int pattern = (state.get(i - 1) << 2) | (state.get(i) << 1) | state.get(i + 1)
+        new_state.set(i, useRule(pattern))
+        i = i + 1
+    }
+    new_state.set(i, 1)
+    new_state
+}
+
+Void main() {
+    IntArray state = IntArray(SIZE)
+    state.set(SIZE - 1, 1)
+
+    Int i = 0
+    while i < SIZE - 1 {
+        printState(state)
+        state = nextState(state)
+        i = i + 1
+    }
+}

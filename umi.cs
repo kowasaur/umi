@@ -190,7 +190,10 @@ class Lexer {
                     type = Token.Type.CHAR;
                     value = QuoteConsume('\'');
                     if (value.Length == 1) value = ((int)value[0]).ToString();
-                    else if (value.Length == 2 && value[0] == '\\') value = ((int)value[1]).ToString();
+                    else if (value.Length == 2 && value[0] == '\\') {
+                        if (value[1] == 'n') value = "10"; // \n
+                        else value = ((int)value[1]).ToString();
+                    } 
                     else Umi.Crash("Chars may only be one character long", loc);
                     break;
                 case '#':

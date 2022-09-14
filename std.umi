@@ -12,6 +12,8 @@ ilf Void print(Int) "[mscorlib]System.Console::WriteLine"
 ilf Void print(Bool) "[mscorlib]System.Console::WriteLine"
 
 ilf Void consoleWrite(String) "[mscorlib]System.Console::Write"
+ilf Void consoleWrite(Int) "[mscorlib]System.Console::Write"
+ilf Void consoleWrite(Char) "[mscorlib]System.Console::Write"
 ilf String input() "[mscorlib]System.Console::ReadLine"
 
 # TODO: Maybe add inline functions
@@ -40,8 +42,12 @@ Bool >=(Int a, Int b) { !(a < b) }
 Bool <=(Int a, Int b) { !(a > b) }
 
 # Logical Operators
-# Since these operations are bitwise, I'm thinking to 
-# use the same symbols for booleans and integers
 il Bool &&(Bool, Bool) "and"
 il Bool ||(Bool, Bool) "or"
 Bool !(Void _, Bool a) { a == false }
+
+# Bitwise Operators
+il Int <<(Int, Int) "shl"
+il Int >>(Int, Int) "shr"
+il Int &(Int, Int) "and"
+il Int |(Int, Int) "or"

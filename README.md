@@ -5,7 +5,7 @@ Note that the .expected files are the expected output of the corresponding .umi 
 ## Goals
 
 -   [x] Compiles to [CIL](https://en.wikipedia.org/wiki/Common_Intermediate_Language)
--   [ ] Turing Complete
+-   [x] [Turing Complete](https://github.com/kowasaur/umi/blob/main/examples/rule110.umi)
 -   [ ] Self-hosted
 -   [ ] Published on the AUR
 -   [ ] Pong
