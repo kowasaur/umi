@@ -1,5 +1,5 @@
 class Person {
-    String name
+    mut String name
     Int age
 
     Person(String name, Int a) {
@@ -29,9 +29,10 @@ IntList add10(IntList i) {
 }
 
 Void main() {
-    Person p = Person("Barry", 63)
+    Person p = Person("Larry", 63)
     print(p.name)
     print(p.age)
+    p.name = "Barry"
     p.introduce()
     print(p.ageAfterYears(15))
 
