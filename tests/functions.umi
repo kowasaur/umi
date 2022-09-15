@@ -1,6 +1,6 @@
 String createHello(String name) {
-    # Implicit return
-    "Hello, " + name
+    if name == "Bob" { return "You suck Bob" } # Explicit return
+    "Hello, " + name # Implicit return
 }
 
 Void greet(String name, Int age) {
@@ -19,4 +19,5 @@ Void greet(Int age) {
 Void main() {
     greet("Joe", 3333)
     greet(52)
+    print(createHello("Bob"))
 }

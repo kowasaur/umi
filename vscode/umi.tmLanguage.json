@@ -15,7 +15,7 @@
         "keywords": {
             "patterns": [
                 { "name": "keyword.other", "match": "\\b(il|ilf)\\b" },
-                { "name": "keyword.control", "match": "\\b(if|else|while)\\b" },
+                { "name": "keyword.control", "match": "\\b(if|else|while|return)\\b" },
                 { "name": "storage.type", "match": "\\b(class|alias)\\b" },
                 { "name": "storage.modifier", "match": "\\b(mut)\\b" }
             ]

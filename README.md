@@ -17,7 +17,7 @@ Note that the .expected files are the expected output of the corresponding .umi 
 <!-- TODO: Choose stuff that you would actually want to present -->
 
 -   Strong static typing
--   Implicit return
+-   Implicit and explicit return
 -   Function overloading
 -   `if` and `else` statements
 -   `while` loops
@@ -31,7 +31,6 @@ Note that the .expected files are the expected output of the corresponding .umi 
 
 -   Aliases within local scopes
 -   Macros or inline functions
--   Explicit return
 -   Inheritance
 -   Generics
 -   `for` `in` loop
@@ -40,3 +39,5 @@ Note that the .expected files are the expected output of the corresponding .umi 
 -   String interpolation
 -   Anonymous functions
 -   Switch cases
+-   Namespaces
+-   Including other umi files (importing)

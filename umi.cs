@@ -46,7 +46,8 @@ class Token {
         LPARAN, RPARAN, LCURLY, RCURLY,
         NEWLINE, COMMA, DOT, EQUAL,
         IL, ILF, ALIAS, CLASS, MUT,
-        IF, ELSE, WHILE
+        IF, ELSE, WHILE,
+        RETURN
     }
 
 }
@@ -149,6 +150,9 @@ class Lexer {
                         break;
                     case "while":
                         type = Token.Type.WHILE;
+                        break;
+                    case "return":
+                        type = Token.Type.RETURN;
                         break;
                     default:
                         type = Token.Type.IDENTIFIER;
@@ -509,7 +513,11 @@ abstract class Grammar {
             (loc, nodes) => new AstNode.While(loc, nodes[1], (AstNode.Statements)nodes[2])
         );
 
-        var LOCAL_STMTS = NewStatements("LOCAL", new Grammar[] {VAR_DEF, VAR_ASSIGN, FIELD_ASSIGN, EXPRESSION, IF_STMT, WHILE});
+        var RETURN = new Pattern("RETURN", new Grammar[] {new Tok(Token.Type.RETURN), EXPRESSION.NewOptional("OPT_EXP")},
+            (loc, nodes) => new AstNode.Return(loc, nodes[1])
+        );
+
+        var LOCAL_STMTS = NewStatements("LOCAL", new Grammar[] {VAR_DEF, VAR_ASSIGN, FIELD_ASSIGN, EXPRESSION, IF_STMT, WHILE, RETURN});
         LOCAL_BLOCK.possible_patterns[0][1] = LOCAL_STMTS;
 
         // function definition identifier
@@ -915,6 +923,15 @@ class AstNode {
         }
 
         public override void GenIl(Scope scope, AstNode funcontext) => assignment.GenIl(scope, funcontext);
+    }
+
+    public class Return : AstNode {
+        readonly AstNode expression;
+        public Return(Location loc, AstNode expression): base(loc) => this.expression = expression;
+        public override void GenIl(Scope scope, AstNode funcontext) {
+            expression?.GenIl(scope, funcontext);
+            Output.WriteLine("ret");
+        }
     }
 
     static string ParentClass(AstNode context) => context == null ? null : ((AstNode.IlClass)context).name;
