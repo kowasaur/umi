@@ -45,7 +45,7 @@ class Token {
         STRING, CHAR, INTEGER, BOOLEAN,
         LPARAN, RPARAN, LCURLY, RCURLY,
         NEWLINE, COMMA, DOT, EQUAL,
-        IL, ILF, ALIAS, CLASS, MUT,
+        IL, ILF, ALIAS, CLASS, MUT, STATIC,
         IF, ELSE, WHILE,
         RETURN, BREAK, CONTINUE
     }
@@ -133,6 +133,9 @@ class Lexer {
                         break;
                     case "mut":
                         type = Token.Type.MUT;
+                        break;
+                    case "static":
+                        type = Token.Type.STATIC;
                         break;
                     case "true":
                         type = Token.Type.BOOLEAN;
@@ -381,6 +384,7 @@ abstract class Grammar {
         var DOT = new Tok(Token.Type.DOT);
         var EQUAL = new Tok(Token.Type.EQUAL);
         var MUT = new Tok(Token.Type.MUT, optional: true);
+        var STATIC = new Tok(Token.Type.STATIC, optional: true);
         var CLASS = new Tok(Token.Type.CLASS);
         var IL = new Tok(Token.Type.IL);
         var ILF = new Tok(Token.Type.ILF);
@@ -584,13 +588,13 @@ abstract class Grammar {
         );
         
         var METHOD = new Pattern("METHOD", 
-            new Grammar[] {FUNC_TYPE_NAME, LPARAN, PARAM_LIST, RPARAN, LOCAL_BLOCK},
+            new Grammar[] {STATIC, FUNC_TYPE_NAME, LPARAN, PARAM_LIST, RPARAN, LOCAL_BLOCK},
             (loc, nodes) => {
-                string return_type = ((AstNode.Field)nodes[0]).type;
-                string name = ((AstNode.Field)nodes[0]).name;
+                string return_type = ((AstNode.Field)nodes[1]).type;
+                string name = ((AstNode.Field)nodes[1]).name;
                 AstNode.Param[] parameters = null;
-                if (nodes[2] != null) parameters = ((AstNode.Multiple<AstNode.Param>)nodes[2]).ToArray();
-                return new AstNode.FuncDef(loc, false, return_type, name, (AstNode.Statements)nodes[4], parameters);
+                if (nodes[3] != null) parameters = ((AstNode.Multiple<AstNode.Param>)nodes[3]).ToArray();
+                return new AstNode.FuncDef(loc, nodes[0] != null, return_type, name, (AstNode.Statements)nodes[5], parameters);
             }
         );
 
@@ -702,11 +706,18 @@ abstract class AstNode {
     public class Identifier : Value {
         public Identifier(Tok tok): base(tok) {}
 
-        public override string Type(Scope scope) => ((Name.Varish)scope.LookUp(content, location)).Type(scope);
+        public override string Type(Scope scope) {
+            Name result = scope.LookUp(content, location);
+            if (result is Name.Varish) return ((Name.Varish)result).Type(scope);
+            if (result is Name.Class) return ((Name.Class)result).name;
+            Umi.Crash($"Identifier was not a variable nor class", location);
+            return null; // Make compiler happy
+        }
 
         public override void GenIl(Scope scope) {
-            Name.Varish varish = (Name.Varish)scope.LookUp(content, location);
-            varish.GenIl(scope, this);
+            Name result = scope.LookUp(content, location);
+            // The if is for static methods
+            if (result is Name.Varish) ((Name.Varish)result).GenIl(scope, this);
         }
     }
 

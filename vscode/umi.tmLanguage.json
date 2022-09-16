@@ -20,7 +20,7 @@
                     "match": "\\b(if|else|while|return|break|continue)\\b"
                 },
                 { "name": "storage.type", "match": "\\b(class|alias)\\b" },
-                { "name": "storage.modifier", "match": "\\b(mut)\\b" }
+                { "name": "storage.modifier", "match": "\\b(mut|static)\\b" }
             ]
         },
         "booleans": { "name": "constant.language.boolean", "match": "\\b(true|false)\\b" },
