@@ -47,7 +47,7 @@ class Token {
         NEWLINE, COMMA, DOT, EQUAL,
         IL, ILF, ALIAS, CLASS, MUT,
         IF, ELSE, WHILE,
-        RETURN, BREAK
+        RETURN, BREAK, CONTINUE
     }
 
 }
@@ -156,6 +156,9 @@ class Lexer {
                         break;
                     case "break":
                         type = Token.Type.BREAK;
+                        break;
+                    case "continue":
+                        type = Token.Type.CONTINUE;
                         break;
                     default:
                         type = Token.Type.IDENTIFIER;
@@ -520,9 +523,10 @@ abstract class Grammar {
             (loc, nodes) => new AstNode.Return(loc, nodes[1])
         );
         var BREAK = new Pattern("BREAK", new Grammar[] {new Tok(Token.Type.BREAK)}, (loc, _) => new AstNode.Break(loc));
+        var CONTINUE = new Pattern("CONTINUE", new Grammar[] {new Tok(Token.Type.CONTINUE)}, (loc, _) => new AstNode.Continue(loc));
 
         var LOCAL_STMTS = NewStatements("LOCAL", 
-            new Grammar[] {VAR_DEF, VAR_ASSIGN, FIELD_ASSIGN, EXPRESSION, IF_STMT, WHILE, RETURN, BREAK}
+            new Grammar[] {VAR_DEF, VAR_ASSIGN, FIELD_ASSIGN, EXPRESSION, IF_STMT, WHILE, RETURN, BREAK, CONTINUE}
         );
         LOCAL_BLOCK.possible_patterns[0][1] = LOCAL_STMTS;
 
@@ -626,10 +630,7 @@ abstract class AstNode {
     public readonly Location location;
     AstNode node_parent;
 
-    public AstNode(Location loc) {
-        location = loc;
-    }
-
+    public AstNode(Location loc) => location = loc;
     public virtual string Type(Scope scope) => throw new NotImplementedException();
     public virtual void CreateNameInfo(Scope scope) => throw new NotImplementedException();
     public virtual void GenIl(Scope scope) => throw new NotImplementedException();
@@ -895,7 +896,7 @@ abstract class AstNode {
     }
 
     public class If : Block {
-        protected readonly AstNode condition;
+        public readonly AstNode condition;
 
         public If(Location loc, AstNode condition, Statements statements) : base(loc, statements) {
             this.condition = condition;
@@ -993,14 +994,26 @@ abstract class AstNode {
         }
     }
 
-    public class Break : AstNode {
-        public Break(Location loc): base(loc) {}
+    public abstract class Goto : AstNode {
+        public Goto(Location loc): base(loc) {}
+
+        protected abstract Location LabelLoc(AstNode.While w);
 
         public override void GenIl(Scope scope) {
             AstNode.While w = GetAncestorOfType<AstNode.While>();
-            if (w == null) Umi.Crash("No enclosed looping to break out of", location);
-            Output.WriteLine($"br {w.statements.end.Label()}");
+            if (w == null) Umi.Crash("No enclosed loop to break/continue out of", location);
+            Output.WriteLine($"br {LabelLoc(w).Label()}");
         }
+    } 
+
+    public class Break : Goto {
+        public Break(Location loc): base(loc) {}
+        protected override Location LabelLoc(While w) => w.statements.end;
+    }
+
+    public class Continue : Goto {
+        public Continue(Location loc): base(loc) {}
+        protected override Location LabelLoc(While w) => w.condition.location;
     }
 
     string ParentClassName() => node_parent is AstNode.IlClass ? ((AstNode.IlClass)node_parent).name : null;

@@ -5,4 +5,16 @@ Void main() {
         i = i + 1
         print(i)
     }
+
+    print("")
+    while true {
+        if i == 3 {
+            print("3 sucks")
+            i = i - 1
+            continue
+        }
+        print(i)
+        if i == 1 { break }
+        i = i - 1
+    }
 }
