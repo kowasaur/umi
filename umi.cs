@@ -47,7 +47,7 @@ class Token {
         NEWLINE, COMMA, DOT, EQUAL,
         IL, ILF, ALIAS, CLASS, MUT,
         IF, ELSE, WHILE,
-        RETURN
+        RETURN, BREAK
     }
 
 }
@@ -153,6 +153,9 @@ class Lexer {
                         break;
                     case "return":
                         type = Token.Type.RETURN;
+                        break;
+                    case "break":
+                        type = Token.Type.BREAK;
                         break;
                     default:
                         type = Token.Type.IDENTIFIER;
@@ -516,8 +519,11 @@ abstract class Grammar {
         var RETURN = new Pattern("RETURN", new Grammar[] {new Tok(Token.Type.RETURN), EXPRESSION.NewOptional("OPT_EXP")},
             (loc, nodes) => new AstNode.Return(loc, nodes[1])
         );
+        var BREAK = new Pattern("BREAK", new Grammar[] {new Tok(Token.Type.BREAK)}, (loc, _) => new AstNode.Break(loc));
 
-        var LOCAL_STMTS = NewStatements("LOCAL", new Grammar[] {VAR_DEF, VAR_ASSIGN, FIELD_ASSIGN, EXPRESSION, IF_STMT, WHILE, RETURN});
+        var LOCAL_STMTS = NewStatements("LOCAL", 
+            new Grammar[] {VAR_DEF, VAR_ASSIGN, FIELD_ASSIGN, EXPRESSION, IF_STMT, WHILE, RETURN, BREAK}
+        );
         LOCAL_BLOCK.possible_patterns[0][1] = LOCAL_STMTS;
 
         // function definition identifier
@@ -615,9 +621,10 @@ abstract class Grammar {
 
 }
 
-class AstNode {
+abstract class AstNode {
 
     public readonly Location location;
+    AstNode node_parent;
 
     public AstNode(Location loc) {
         location = loc;
@@ -625,7 +632,15 @@ class AstNode {
 
     public virtual string Type(Scope scope) => throw new NotImplementedException();
     public virtual void CreateNameInfo(Scope scope, AstNode context = null) => throw new NotImplementedException();
-    public virtual void GenIl(Scope scope, AstNode context = null) => throw new NotImplementedException();
+    public virtual void GenIl(Scope scope) => throw new NotImplementedException();
+    protected virtual void SetParent(AstNode parent) => node_parent = parent;
+
+    // Returns null if there is no ancestor of that type
+    T GetAncestorOfType<T>() where T : AstNode {
+        if (node_parent == null) return null;
+        if (node_parent is T) return (T)node_parent;
+        return node_parent.GetAncestorOfType<T>();
+    }
 
     public void ExpectType(string expected, Scope scope) {
         string actual_type = Type(scope);
@@ -653,7 +668,7 @@ class AstNode {
     public class Nothing : AstNode {
         public Nothing() : base(new Location(-1, -1, null, -1)) {}
         public override string Type(Scope _) => "Void";
-        public override void GenIl(Scope _, AstNode __) {}
+        public override void GenIl(Scope _) {}
     }
 
     public abstract class Value : AstNode {
@@ -664,13 +679,13 @@ class AstNode {
     public class StringLiteral : Value {
         public StringLiteral(Tok tok): base(tok) {}
         public override string Type(Scope _) => "String";
-        public override void GenIl(Scope _, AstNode __) => Output.WriteLine($"ldstr \"{content}\"");
+        public override void GenIl(Scope _) => Output.WriteLine($"ldstr \"{content}\"");
     }
 
     public class IntegerLiteral : Value {
         public IntegerLiteral(Tok tok): base(tok) {}
         public override string Type(Scope _) => "Int";
-        public override void GenIl(Scope _, AstNode __) => Output.WriteLine($"ldc.i4 {content}");
+        public override void GenIl(Scope _) => Output.WriteLine($"ldc.i4 {content}");
     }
 
     public class BooleanLiteral : IntegerLiteral {
@@ -688,7 +703,7 @@ class AstNode {
 
         public override string Type(Scope scope) => ((Name.Varish)scope.LookUp(content, location)).Type(scope);
 
-        public override void GenIl(Scope scope, AstNode _) {
+        public override void GenIl(Scope scope) {
             Name.Varish varish = (Name.Varish)scope.LookUp(content, location);
             varish.GenIl(scope, this);
         }
@@ -745,7 +760,12 @@ class AstNode {
 
         public override string Type(Scope scope) => GetFuncInfo(scope).return_type;
 
-        public override void GenIl(Scope scope, AstNode _) {
+        protected override void SetParent(AstNode parent) {
+            base.SetParent(parent);
+            foreach (var arg in arguments) arg.SetParent(this);
+        }
+
+        public override void GenIl(Scope scope) {
             FuncInfo func_info = GetFuncInfo(scope);
             foreach (var arg in arguments) arg.GenIl(scope);
             func_info.GenIl(scope);
@@ -761,12 +781,19 @@ class AstNode {
             this.value = value;
         }
 
-        public override void GenIl(Scope scope, AstNode funcontext) {
+        protected override void SetParent(AstNode parent) {
+            base.SetParent(parent);
+            value.SetParent(this);
+        }
+
+        public override void GenIl(Scope scope) {
             Name maybe_var = scope.LookUp(name, location);
             if (maybe_var is Name.Field) {
                 var this_tok = new AstNode.Tok(new Token(Token.Type.NOTHING, location, "this"));
                 var dot = new AstNode.Dot(location, new AstNode.Identifier(this_tok), name);
-                new AstNode.FieldAssign(location, dot, value).GenIl(scope, funcontext);
+                var fa = new AstNode.FieldAssign(location, dot, value);
+                fa.SetParent(node_parent);
+                fa.GenIl(scope);
                 return;
             } else if (!(maybe_var is Name.Var)) {
                 Umi.Crash("Can only reassign local variables and fields", location);
@@ -793,13 +820,19 @@ class AstNode {
             this.value = value;
         }
 
-        public override void GenIl(Scope scope, AstNode context) {
+        protected override void SetParent(AstNode parent) {
+            base.SetParent(parent);
+            dot.SetParent(this);
+            value.SetParent(this);
+        }
+
+        public override void GenIl(Scope scope) {
             Name.Class cls = dot.GetClass(scope);
             Name.Field field = dot.GetField(cls);
 
             value.ExpectType(field.type, scope);
             if (!field.is_mutable) {
-                FuncInfo.Ord func_info = ((AstNode.FuncDef)context).func_info;
+                FuncInfo.Ord func_info = GetAncestorOfType<AstNode.FuncDef>().func_info;
                 if (!(func_info.IsConstructor() && func_info.parent_class == cls.name)) {
                     Umi.Crash($"Cannot reassign immutable member `{cls.name}.{dot.child}` outside of constructor", location);
                 }
@@ -820,8 +853,13 @@ class AstNode {
             this.end = end;
         }
 
-        public override void GenIl(Scope scope, AstNode funcontext = null) { 
-            foreach (var stmt in statements) stmt.GenIl(scope, funcontext);
+        protected override void SetParent(AstNode parent) {
+            base.SetParent(parent);
+            foreach (var stmt in statements) stmt.SetParent(parent);
+        }
+
+        public override void GenIl(Scope scope) { 
+            foreach (var stmt in statements) stmt.GenIl(scope);
         }
     }
 
@@ -848,7 +886,12 @@ class AstNode {
             block_scope = SubScope(scope, local_var_types, statements.statements);
         }
 
-        protected void GenStatements(AstNode funcontext) => statements.GenIl(block_scope, funcontext);
+        protected void GenStatements() => statements.GenIl(block_scope);
+
+        protected override void SetParent(AstNode parent) {
+            base.SetParent(parent);
+            statements.SetParent(this);
+        }
     }
 
     public class If : Block {
@@ -859,16 +902,21 @@ class AstNode {
         }
 
         // The stuff that's common in If and IfElse and return the if_end label
-        protected string IfIl(Scope scope, AstNode funcontext) {
+        protected string IfIl(Scope scope) {
             condition.ExpectType("Bool", scope);
             condition.GenIl(scope);
             string if_end = statements.end.Label();
             Output.WriteLine($"brfalse {if_end}");
-            GenStatements(funcontext);
+            GenStatements();
             return if_end;
         }
 
-        public override void GenIl(Scope scope, AstNode funcontext) => Output.WriteLabel(IfIl(scope, funcontext));
+        protected override void SetParent(AstNode parent) {
+            base.SetParent(parent);
+            condition.SetParent(this);
+        }
+
+        public override void GenIl(Scope scope) => Output.WriteLabel(IfIl(scope));
     }
 
     public class IfElse : If {
@@ -884,8 +932,8 @@ class AstNode {
             else_scope = SubScope(scope, local_var_types, else_statements.statements);
         }
 
-        public override void GenIl(Scope scope, AstNode funcontext) {
-            string if_end = IfIl(scope, funcontext);
+        public override void GenIl(Scope scope) {
+            string if_end = IfIl(scope);
             string else_end = else_statements.end.Label();
             Output.WriteLine($"br {else_end}");
             Output.WriteLabel(if_end);
@@ -897,10 +945,10 @@ class AstNode {
     public class While : If {
         public While(Location loc, AstNode cond, Statements stmts) : base(loc, cond, stmts) {}
 
-        public override void GenIl(Scope scope, AstNode funcontext) {
+        public override void GenIl(Scope scope) {
             string cond_label = condition.location.Label();
             Output.WriteLabel(cond_label);
-            string end = IfIl(scope, funcontext);
+            string end = IfIl(scope);
             Output.WriteLine($"br {cond_label}");
             Output.WriteLabel(end);
         }
@@ -922,15 +970,36 @@ class AstNode {
             local_var_types.Add(scope.GetIlType(type, location));
         }
 
-        public override void GenIl(Scope scope, AstNode funcontext) => assignment.GenIl(scope, funcontext);
+        protected override void SetParent(AstNode parent) {
+            base.SetParent(parent);
+            assignment.SetParent(this);
+        }
+
+        public override void GenIl(Scope scope) => assignment.GenIl(scope);
     }
 
     public class Return : AstNode {
         readonly AstNode expression;
         public Return(Location loc, AstNode expression): base(loc) => this.expression = expression;
-        public override void GenIl(Scope scope, AstNode funcontext) {
-            expression?.GenIl(scope, funcontext);
+
+        protected override void SetParent(AstNode parent) {
+            base.SetParent(parent);
+            expression.SetParent(this);
+        }
+        
+        public override void GenIl(Scope scope) {
+            expression?.GenIl(scope);
             Output.WriteLine("ret");
+        }
+    }
+
+    public class Break : AstNode {
+        public Break(Location loc): base(loc) {}
+
+        public override void GenIl(Scope scope) {
+            AstNode.While w = GetAncestorOfType<AstNode.While>();
+            if (w == null) Umi.Crash("No enclosed looping to break out of", location);
+            Output.WriteLine($"br {w.statements.end.Label()}");
         }
     }
 
@@ -982,7 +1051,7 @@ class AstNode {
             }
         }
 
-        public override void GenIl(Scope scope, AstNode _) {
+        public override void GenIl(Scope scope) {
             Output.WriteLine($".method {(is_static ? "static " : "")}{func_info.IlSignature(scope)}");
             Output.WriteLine("{");
             Output.Indent();
@@ -1001,7 +1070,7 @@ class AstNode {
                 Output.WriteLine(")");
             }
             
-            GenStatements(this);
+            GenStatements();
             Output.WriteLine("ret");
             Output.Unindent();
             Output.WriteLine("}\n");
@@ -1030,7 +1099,7 @@ class AstNode {
             AddToScope(scope, ParentClass(context), func_info, name, return_type);
         }
 
-        public override void GenIl(Scope _, AstNode __) {}
+        public override void GenIl(Scope _) {}
     }
 
     public class Alias : AstNode {
@@ -1043,7 +1112,7 @@ class AstNode {
         }
 
         public override void CreateNameInfo(Scope scope, AstNode _) => scope.Add(name, new Name.Alias(location, value));
-        public override void GenIl(Scope _, AstNode __) {}
+        public override void GenIl(Scope _) {}
     }
 
     // e.g parent.child
@@ -1062,7 +1131,12 @@ class AstNode {
 
         public override string Type(Scope scope) => GetField(GetClass(scope)).type;
 
-        public override void GenIl(Scope scope, AstNode _) {
+        protected override void SetParent(AstNode node_parent) {
+            base.SetParent(node_parent);
+            parent.SetParent(this);
+        }
+
+        public override void GenIl(Scope scope) {
             parent.GenIl(scope);
             GetField(GetClass(scope)).GenDotIl(scope, location);
         }
@@ -1083,7 +1157,7 @@ class AstNode {
             scope.Add(name, new Name.Field(location, type, name, ((AstNode.Class)context).name, is_mutable));
         }
 
-        public override void GenIl(Scope scope, AstNode _) {
+        public override void GenIl(Scope scope) {
             Output.WriteLine($".field {scope.GetIlType(type, location)} {name}\n");
         }
     }
@@ -1100,6 +1174,11 @@ class AstNode {
             this.statements = statements;
         }
 
+        protected override void SetParent(AstNode parent) {
+            base.SetParent(parent);
+            statements.SetParent(this);
+        }
+
         public override void CreateNameInfo(Scope scope, AstNode _ = null) {
             class_scope = new Scope(scope);
             scope.Add(name, new Name.Class(location, name, class_scope, il_name));
@@ -1107,13 +1186,13 @@ class AstNode {
             foreach (AstNode stmt in statements.statements) stmt.CreateNameInfo(class_scope, this);
         }
 
-        public override void GenIl(Scope _, AstNode __) {}
+        public override void GenIl(Scope _) {}
     }
 
     public class Class : IlClass {
         public Class(Location loc, string name, Statements statements) : base(loc, name, name, statements) {}
 
-        public override void GenIl(Scope scope, AstNode _) {
+        public override void GenIl(Scope scope) {
             Output.WriteLine($".class {name}");
             Output.WriteLine("{");
             Output.Indent();
@@ -1129,10 +1208,13 @@ class AstNode {
         public Program(AstNode[] s) : base(s[0].location) => global_statements = s;
 
         public override void CreateNameInfo(Scope scope, AstNode _ = null) {
-            foreach(AstNode statement in global_statements) statement.CreateNameInfo(scope);
+            foreach(AstNode statement in global_statements) {
+                statement.SetParent(this);
+                statement.CreateNameInfo(scope);
+            }
         }
 
-        public override void GenIl(Scope scope, AstNode _ = null) {
+        public override void GenIl(Scope scope) {
             File.Delete("output.il");
             Output.WriteLine(".assembly UmiProgram {}\n");
             foreach(AstNode statement in global_statements) statement.GenIl(scope);
