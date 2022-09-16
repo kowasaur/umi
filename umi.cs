@@ -631,7 +631,7 @@ abstract class AstNode {
     }
 
     public virtual string Type(Scope scope) => throw new NotImplementedException();
-    public virtual void CreateNameInfo(Scope scope, AstNode context = null) => throw new NotImplementedException();
+    public virtual void CreateNameInfo(Scope scope) => throw new NotImplementedException();
     public virtual void GenIl(Scope scope) => throw new NotImplementedException();
     protected virtual void SetParent(AstNode parent) => node_parent = parent;
 
@@ -1003,7 +1003,7 @@ abstract class AstNode {
         }
     }
 
-    static string ParentClass(AstNode context) => context == null ? null : ((AstNode.IlClass)context).name;
+    string ParentClassName() => node_parent is AstNode.IlClass ? ((AstNode.IlClass)node_parent).name : null;
 
     void AddToScope(Scope scope, string parent_class, FuncInfo func_info, string name, string return_type) {
         if (name == return_type) { // Add constructor to the class
@@ -1030,8 +1030,8 @@ abstract class AstNode {
             parameters = paras ?? new Param[0];
         }
 
-        public override void CreateNameInfo(Scope scope, AstNode context = null) {
-            string parent_class = ParentClass(context);
+        public override void CreateNameInfo(Scope scope) {
+            string parent_class = ParentClassName();
             func_info = new FuncInfo.Ord(parameters, return_type, is_static, name, location, parent_class);
             
             AddToScope(scope, parent_class, func_info, name, return_type);
@@ -1092,11 +1092,11 @@ abstract class AstNode {
             this.is_ilf = is_ilf;
         }
 
-        public override void CreateNameInfo(Scope scope, AstNode context = null) {
+        public override void CreateNameInfo(Scope scope) {
             FuncInfo func_info;
             if (is_ilf) func_info = new FuncInfo.Ord(param_types, return_type, true, il, location, null);
             else func_info = new FuncInfo.Il(param_types, return_type, il);
-            AddToScope(scope, ParentClass(context), func_info, name, return_type);
+            AddToScope(scope, ParentClassName(), func_info, name, return_type);
         }
 
         public override void GenIl(Scope _) {}
@@ -1111,7 +1111,7 @@ abstract class AstNode {
             this.value = value;
         }
 
-        public override void CreateNameInfo(Scope scope, AstNode _) => scope.Add(name, new Name.Alias(location, value));
+        public override void CreateNameInfo(Scope scope) => scope.Add(name, new Name.Alias(location, value));
         public override void GenIl(Scope _) {}
     }
 
@@ -1153,8 +1153,8 @@ abstract class AstNode {
             this.is_mutable = is_mutable;
         }
 
-        public override void CreateNameInfo(Scope scope, AstNode context) {
-            scope.Add(name, new Name.Field(location, type, name, ((AstNode.Class)context).name, is_mutable));
+        public override void CreateNameInfo(Scope scope) {
+            scope.Add(name, new Name.Field(location, type, name, ParentClassName(), is_mutable));
         }
 
         public override void GenIl(Scope scope) {
@@ -1179,11 +1179,11 @@ abstract class AstNode {
             statements.SetParent(this);
         }
 
-        public override void CreateNameInfo(Scope scope, AstNode _ = null) {
+        public override void CreateNameInfo(Scope scope) {
             class_scope = new Scope(scope);
             scope.Add(name, new Name.Class(location, name, class_scope, il_name));
 
-            foreach (AstNode stmt in statements.statements) stmt.CreateNameInfo(class_scope, this);
+            foreach (AstNode stmt in statements.statements) stmt.CreateNameInfo(class_scope);
         }
 
         public override void GenIl(Scope _) {}
@@ -1207,7 +1207,7 @@ abstract class AstNode {
 
         public Program(AstNode[] s) : base(s[0].location) => global_statements = s;
 
-        public override void CreateNameInfo(Scope scope, AstNode _ = null) {
+        public override void CreateNameInfo(Scope scope) {
             foreach(AstNode statement in global_statements) {
                 statement.SetParent(this);
                 statement.CreateNameInfo(scope);
