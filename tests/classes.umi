@@ -28,6 +28,17 @@ IntList add10(IntList i) {
     i
 }
 
+class Logger {
+    static mut String everything_logged
+
+    static Logger() { everything_logged = "" }
+
+    static Void log(String message) {
+        print(message)
+        everything_logged = everything_logged + message + "\n"
+    }
+}
+
 Void main() {
     Person p = Person("Larry", 63)
     print(p.name)
@@ -40,4 +51,9 @@ Void main() {
     list = add10(list)
     list = add10(list)
     print(list.get(1))
+
+    Logger.log("This is a message")
+    Logger.log("pog")
+    Logger.log("I don't know what to write")
+    print(Logger.everything_logged)
 }

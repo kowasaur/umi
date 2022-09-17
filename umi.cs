@@ -584,8 +584,8 @@ abstract class Grammar {
             (loc, nodes) => new AstNode.Alias(loc, ValueText(nodes, 1), nodes[3])
         );
 
-        var FIELD = new Pattern("FIELD", new Grammar[] {MUT, IDENTIFIER, IDENTIFIER}, 
-            (loc, nodes) => new AstNode.Field(loc, ValueText(nodes, 1), ValueText(nodes, 2), nodes[0] != null)
+        var FIELD = new Pattern("FIELD", new Grammar[] {STATIC, MUT, IDENTIFIER, IDENTIFIER}, 
+            (loc, nodes) => new AstNode.Field(loc, ValueText(nodes, 2), ValueText(nodes, 3), nodes[1] != null, nodes[0] != null)
         );
         
         var METHOD = new Pattern("METHOD", 
@@ -652,7 +652,7 @@ abstract class AstNode {
     protected virtual void SetParent(AstNode parent) => node_parent = parent;
 
     // Returns null if there is no ancestor of that type
-    T GetAncestorOfType<T>() where T : AstNode {
+    public T GetAncestorOfType<T>() where T : AstNode {
         if (node_parent == null) return null;
         if (node_parent is T) return (T)node_parent;
         return node_parent.GetAncestorOfType<T>();
@@ -728,7 +728,7 @@ abstract class AstNode {
         public override void GenIl(Scope scope) {
             Name result = scope.LookUp(content, location);
             // The if is for static methods
-            if (result is Name.Varish) ((Name.Varish)result).GenIl(scope, this);
+            if (result is Name.Varish) ((Name.Varish)result).GenLoadIl(scope, this);
         }
     }
 
@@ -811,26 +811,12 @@ abstract class AstNode {
 
         public override void GenIl(Scope scope) {
             Name maybe_var = scope.LookUp(name, location);
-            if (maybe_var is Name.Field) {
-                var this_tok = new AstNode.Tok(new Token(Token.Type.NOTHING, location, "this"));
-                var dot = new AstNode.Dot(location, new AstNode.Identifier(this_tok), name);
-                var fa = new AstNode.FieldAssign(location, dot, value);
-                fa.SetParent(node_parent);
-                fa.GenIl(scope);
-                return;
-            } else if (!(maybe_var is Name.Var)) {
-                Umi.Crash("Can only reassign local variables and fields", location);
-            }
+            if (!(maybe_var is Name.Varish)) Umi.Crash("Can only reassign local variables and fields", location);
             
-            Name.Var variable = (Name.Var)maybe_var;
-            if (variable.defined_at > location) {
-                Umi.Crash($"Can not assign to variable `{name}` before it is defined", location);
-            }
-            variable.MutablilityCheck(location);
-            value.ExpectType(variable.type, scope);
-
-            value.GenIl(scope);
-            Output.WriteLine($"stloc {variable.index}");
+            Name.Varish variable = (Name.Varish)maybe_var;
+            variable.CheckCanAssign(this);
+            value.ExpectType(variable.Type(scope), scope);
+            variable.GenStoreIl(scope, location, value);
         }
     }
 
@@ -850,20 +836,14 @@ abstract class AstNode {
         }
 
         public override void GenIl(Scope scope) {
-            Name.Class cls = dot.GetClass(scope);
-            Name.Field field = dot.GetField(cls);
+            Name.Field field = dot.GetField(scope);
 
             value.ExpectType(field.type, scope);
-            if (!field.is_mutable) {
-                FuncInfo.Ord func_info = GetAncestorOfType<AstNode.FuncDef>().func_info;
-                if (!(func_info.IsConstructor() && func_info.parent_class == cls.name)) {
-                    Umi.Crash($"Cannot reassign immutable member `{cls.name}.{dot.child}` outside of constructor", location);
-                }
-            }
+            field.CheckCanAssign(this);
 
             dot.parent.GenIl(scope);
             value.GenIl(scope);
-            Output.WriteLine($"stfld {scope.GetIlType(field.type, location)} {cls.name}::{dot.child}");
+            field.GenStoreIl(scope, location);
         }
     }
     
@@ -1164,11 +1144,9 @@ abstract class AstNode {
             this.child = child;
         }
 
-        public Name.Field GetField(Name.Class cls) => (Name.Field)cls.GetMember(child, location);
+        public Name.Field GetField(Scope scope) => (Name.Field)scope.GetClass(parent, location).GetMember(child, location);
         
-        public Name.Class GetClass(Scope scope) => scope.GetClass(parent, location);
-
-        public override string Type(Scope scope) => GetField(GetClass(scope)).type;
+        public override string Type(Scope scope) => GetField(scope).type;
 
         protected override void SetParent(AstNode node_parent) {
             base.SetParent(node_parent);
@@ -1177,7 +1155,7 @@ abstract class AstNode {
 
         public override void GenIl(Scope scope) {
             parent.GenIl(scope);
-            GetField(GetClass(scope)).GenDotIl(scope, location);
+            GetField(scope).GenLoadIl(scope, location);
         }
     }
 
@@ -1185,19 +1163,21 @@ abstract class AstNode {
         public readonly string type;
         public readonly string name;
         readonly bool is_mutable;
+        readonly bool is_static;
 
-        public Field(Location loc, string type, string name, bool is_mutable = false) : base(loc) {
+        public Field(Location loc, string type, string name, bool is_mutable = false, bool is_static = false) : base(loc) {
             this.type = type;
             this.name = name;
             this.is_mutable = is_mutable;
+            this.is_static = is_static;
         }
 
         public override void CreateNameInfo(Scope scope) {
-            scope.Add(name, new Name.Field(location, type, name, ParentClassName(), is_mutable));
+            scope.Add(name, new Name.Field(location, type, name, ParentClassName(), is_mutable, is_static));
         }
 
         public override void GenIl(Scope scope) {
-            Output.WriteLine($".field {scope.GetIlType(type, location)} {name}\n");
+            Output.WriteLine($".field {(is_static ? "static" : "")} {scope.GetIlType(type, location)} {name}\n");
         }
     }
 
@@ -1334,7 +1314,10 @@ abstract class Name {
     public abstract class Varish : Name {
         public Varish(Location defined_at) : base(defined_at) {}
         public abstract string Type(Scope scope);
-        public abstract void GenIl(Scope scope, AstNode.Identifier context);
+        public abstract void GenLoadIl(Scope scope, AstNode.Identifier context);
+        public abstract void CheckCanAssign(AstNode assignment);
+        public virtual void GenStoreIl(Scope scope, Location loc, AstNode value) => value.GenIl(scope);
+        
     }
 
     public class Var : Varish {
@@ -1350,7 +1333,12 @@ abstract class Name {
             is_mutable = mutable;
         }
 
-        public void MutablilityCheck(Location assign_loc) {
+        public override void CheckCanAssign(AstNode assignment) {
+            Location assign_loc = assignment.location;
+            if (defined_at > assign_loc) {
+                string name = ((AstNode.VarAssign)assignment).name;
+                Umi.Crash($"Can not assign to variable `{name}` before it is defined", assign_loc);
+            }
             if (!is_mutable && assign_loc.line > defined_at.line) {
                 Umi.Crash($"Can not reassign immutable variables", assign_loc);
             }
@@ -1358,20 +1346,25 @@ abstract class Name {
 
         public override string Type(Scope _) => type;
 
-        public override void GenIl(Scope _, AstNode.Identifier context) {
+        public override void GenLoadIl(Scope _, AstNode.Identifier context) {
             if (defined_at > context.location) {
                 Umi.Crash($"Can not use variable `{context.content}` before it is defined", context.location);
             }
             Output.WriteLine($"{(is_param ? "ldarg" : "ldloc")} {index}");
         }
-        
+
+        public override void GenStoreIl(Scope scope, Location loc, AstNode value) {
+            base.GenStoreIl(scope, loc, value);
+            Output.WriteLine($"stloc {index}");
+        }
     }
 
     public class Alias : Varish {
         public AstNode node;
         public Alias(Location defined_at, AstNode node) : base(defined_at) => this.node = node;
         public override string Type(Scope scope) => node.Type(scope);
-        public override void GenIl(Scope scope, AstNode.Identifier _) => node.GenIl(scope);
+        public override void GenLoadIl(Scope scope, AstNode.Identifier _) => node.GenIl(scope);
+        public override void CheckCanAssign(AstNode a) => Umi.Crash("Can not reassign alias", a.location);
     }
 
     public class Field : Varish {
@@ -1379,24 +1372,44 @@ abstract class Name {
         public readonly bool is_mutable;
         readonly string name;
         readonly string parent_class;
+        readonly bool is_static;
 
-        public Field(Location defined_at, string type, string name, string pc, bool mutable) : base(defined_at) {
+        public Field(Location defined_at, string type, string name, string pc, bool mutable, bool stati) : base(defined_at) {
             this.type = type;
             this.name = name;
             this.parent_class = pc;
             is_mutable = mutable;
+            is_static = stati;
+        }
+
+        public override void CheckCanAssign(AstNode assignment) {
+            if (is_mutable) return;
+            FuncInfo.Ord func_info = assignment.GetAncestorOfType<AstNode.FuncDef>().func_info;
+            if (func_info.IsConstructor() && func_info.parent_class == parent_class) return;
+            Umi.Crash($"Cannot reassign immutable member `{parent_class}.{name}` outside of constructor", assignment.location);
         }
 
         public override string Type(Scope _) => type;
 
-        public void GenDotIl(Scope scope, Location loc) {
-            Output.WriteLine($"ldfld {scope.GetIlType(type, loc)} {parent_class}::{name}");
+        void GenInstructionIl(Scope scope, Location loc, string instruction) {
+            Output.WriteLine($"{instruction} {scope.GetIlType(type, loc)} {parent_class}::{name}");
+        }
+
+        public void GenLoadIl(Scope scope, Location loc) => GenInstructionIl(scope, loc, is_static ? "ldsfld" : "ldfld");
+        
+        public void GenStoreIl(Scope scope, Location loc) => GenInstructionIl(scope, loc, is_static ? "stsfld" : "stfld");
+
+        public override void GenStoreIl(Scope scope, Location loc, AstNode value) {
+            // `this`. This function should only be called when treated like normal var assign
+            if (!is_static) Output.WriteLine("ldarg 0");
+            base.GenStoreIl(scope, loc, value);
+            GenStoreIl(scope, loc);
         }
 
         // This should only be called when the field is used without `this` in its class
-        public override void GenIl(Scope scope, AstNode.Identifier context) {
-            Output.WriteLine("ldarg 0"); // This should? always work since `this` is always arg 0
-            GenDotIl(scope, context.location);
+        public override void GenLoadIl(Scope scope, AstNode.Identifier context) {
+            if (!is_static) Output.WriteLine("ldarg 0");
+            GenLoadIl(scope, context.location);
         }
     }
 
