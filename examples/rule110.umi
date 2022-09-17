@@ -12,11 +12,11 @@ Int useRule(Int p) { RULE & (1 << p) >> p }
 Void printState(IntArray state) {
     mut Int i = 0
     while i < SIZE {
-        if state.get(i) == 1 { consoleWrite('*') }
-        else { consoleWrite(' ') }
+        if state.get(i) == 1 { Console.write('*') }
+        else { Console.write(' ') }
         i = i + 1
     }
-    consoleWrite('\n')
+    Console.write('\n')
 }
 
 IntArray nextState(IntArray state) {

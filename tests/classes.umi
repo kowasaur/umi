@@ -9,7 +9,7 @@ class Person {
     }
 
     Void introduce() {
-        consoleWrite("Hello I am " + name + ", ")
+        Console.write("Hello I am " + name + ", ")
         print(this.age)
     }
 
@@ -18,7 +18,7 @@ class Person {
 }
 
 il class IntList "class [mscorlib]System.Collections.Generic.List`1<int32>" {
-    il IntList() "newobj void class [mscorlib]System.Collections.Generic.List`1<int32>::'.ctor'()"
+    ilf IntList() ".ctor"
     il Void add(Int) "callvirt void class [mscorlib]System.Collections.Generic.List`1<int32>::Add(!0)"
     il Int get(Int) "callvirt !0 class [mscorlib]System.Collections.Generic.List`1<int32>::get_Item(int32)"
 }

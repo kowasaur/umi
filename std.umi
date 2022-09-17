@@ -11,16 +11,14 @@ ilf Void print(Char) "[mscorlib]System.Console::WriteLine"
 ilf Void print(Int) "[mscorlib]System.Console::WriteLine"
 ilf Void print(Bool) "[mscorlib]System.Console::WriteLine"
 
-ilf Void consoleWrite(String) "[mscorlib]System.Console::Write"
-ilf Void consoleWrite(Int) "[mscorlib]System.Console::Write"
-ilf Void consoleWrite(Char) "[mscorlib]System.Console::Write"
 ilf String input() "[mscorlib]System.Console::ReadLine"
-
 # TODO: Maybe add inline functions
 String input(String prompt) {
-    consoleWrite(prompt)
+    Console.write(prompt)
     input()
 }
+
+ilf Void exit(Int) "[mscorlib]System.Environment::Exit"
 
 ilf String +(String, String) "string::Concat"
 
@@ -51,3 +49,9 @@ il Int <<(Int, Int) "shl"
 il Int >>(Int, Int) "shr"
 il Int &(Int, Int) "and"
 il Int |(Int, Int) "or"
+
+il class Console "[mscorlib]System.Console" {
+    static ilf Void write(String) "Write"
+    static ilf Void write(Int) "Write"
+    static ilf Void write(Char) "Write"
+}

@@ -1112,10 +1112,11 @@ abstract class AstNode {
         }
 
         public override void CreateNameInfo(Scope scope) {
+            string parent_class = ParentClassName();
             FuncInfo func_info;
-            if (is_ilf) func_info = new FuncInfo.Ord(param_types, return_type, is_static, il, location, null);
+            if (is_ilf) func_info = new FuncInfo.Ord(param_types, return_type, is_static, il, location, parent_class);
             else func_info = new FuncInfo.Il(param_types, return_type, il);
-            AddToScope(scope, ParentClassName(), func_info, name, return_type, is_static);
+            AddToScope(scope, parent_class, func_info, name, return_type, is_static);
         }
 
         public override void GenIl(Scope _) {}
@@ -1472,7 +1473,7 @@ abstract class FuncInfo {
             string call_word = is_static ? "call" : "callvirt";
             if (IsConstructor()) call_word = "newobj";
             
-            string prefix = parent_class == null ? "" : parent_class + "::";
+            string prefix = parent_class == null ? "" : scope.GetIlType(parent_class, defined_at) + "::";
             Output.WriteLine($"{call_word} {IlSignature(scope, prefix)}");
         }
     }

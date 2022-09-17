@@ -5,9 +5,9 @@ String createHello(String name) {
 
 Void greet(String name, Int age) {
     mut String message = createHello(name)
-    consoleWrite(message)
+    Console.write(message)
     message = " aged "
-    consoleWrite(message)
+    Console.write(message)
     print(age)
 }
 
