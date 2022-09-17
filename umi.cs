@@ -44,7 +44,7 @@ class Token {
         IDENTIFIER, OPERATOR,
         STRING, CHAR, INTEGER, BOOLEAN,
         LPARAN, RPARAN, LCURLY, RCURLY,
-        NEWLINE, COMMA, DOT, EQUAL,
+        NEWLINE, COMMA, DOT, EQUAL, COLON,
         IL, ILF, ALIAS, CLASS, MUT, STATIC,
         IF, ELSE, WHILE,
         RETURN, BREAK, CONTINUE
@@ -197,6 +197,9 @@ class Lexer {
                     break;
                 case '.':
                     type = Token.Type.DOT;
+                    break;
+                case ':':
+                    type = Token.Type.COLON;
                     break;
                 case '"':
                     type = Token.Type.STRING;
@@ -388,6 +391,7 @@ abstract class Grammar {
         var RPARAN = new Tok(Token.Type.RPARAN);
         var COMMA = new Tok(Token.Type.COMMA);
         var DOT = new Tok(Token.Type.DOT);
+        var COLON = new Tok(Token.Type.COLON);
         var EQUAL = new Tok(Token.Type.EQUAL);
         var MUT = new Tok(Token.Type.MUT, optional: true);
         var STATIC = new Tok(Token.Type.STATIC, optional: true);
@@ -599,10 +603,13 @@ abstract class Grammar {
             }
         );
 
+        var INHERIT = new Pattern("INHERIT", new Grammar[] {COLON, IDENTIFIER}, (loc, nodes) => nodes[1], optional: true);
+
         var CLASS_STMTS = NewStatements("CLASS_STMTS", new Grammar[] {METHOD, FIELD});
         var CLASS_BLOCK = NewBlock("CLASS_BLOCK", CLASS_STMTS);
-        var CLASS_DEF = new Pattern("CLASS_DEF", new Grammar[] {CLASS, IDENTIFIER, CLASS_BLOCK}, (loc, nodes) => {
-            return new AstNode.Class(loc, ValueText(nodes, 1), (AstNode.Statements)nodes[2]);
+        var CLASS_DEF = new Pattern("CLASS_DEF", new Grammar[] {CLASS, IDENTIFIER, INHERIT, CLASS_BLOCK}, (loc, nodes) => {
+            string base_class = nodes[2] != null ? ValueText(nodes, 2) : null;
+            return new AstNode.Class(loc, ValueText(nodes, 1), (AstNode.Statements)nodes[3], base_class);
         });
 
         var IL_METHOD = new Pattern("IL_FUNC", new Grammar[] {STATIC, ILish, FUNC_TYPE_NAME, LPARAN, TYPE_LIST, RPARAN, STRING},
@@ -619,7 +626,7 @@ abstract class Grammar {
         var IL_CLASS_BLOCK = NewBlock("IL_CLASS_BLOCK", IL_CLASS_STMTS);
         var IL_CLASS = new Pattern("IL_CLASS", new Grammar[] {IL, CLASS, IDENTIFIER, STRING, IL_CLASS_BLOCK}, (loc, nodes) => {
             string il = ((AstNode.StringLiteral)nodes[3]).content;
-            return new AstNode.IlClass(loc, ValueText(nodes, 2), il, (AstNode.Statements)nodes[4]);
+            return new AstNode.IlClass(loc, ValueText(nodes, 2), il, (AstNode.Statements)nodes[4], null);
         });
 
         var GLOBAL_STATEMENTS = NewStatements("GLOBAL", new Grammar[] {FUNC_DEF, IL_FUNC, ALIAS, CLASS_DEF, IL_CLASS});
@@ -660,7 +667,7 @@ abstract class AstNode {
 
     public void ExpectType(string expected, Scope scope) {
         string actual_type = Type(scope);
-        if (actual_type != expected) {
+        if (!scope.TypesMatch(expected, actual_type, location)) {
             Umi.Crash($"Incorrect type. Expected {expected} but found {actual_type}", location);
         }
     }
@@ -1069,7 +1076,7 @@ abstract class AstNode {
         }
 
         public override void GenIl(Scope scope) {
-            Output.WriteLine($".method {(is_static ? "static " : "")}{func_info.IlSignature(scope)}");
+            Output.WriteLine($".method {(is_static ? "static " : "virtual ")}{func_info.IlSignature(scope)}");
             Output.WriteLine("{");
             Output.Indent();
             if (name == "main") Output.WriteLine(".entrypoint");
@@ -1185,13 +1192,15 @@ abstract class AstNode {
     public class IlClass : AstNode {
         public readonly string name;
         readonly string il_name;
+        protected string base_class;
         protected readonly Statements statements;
         protected Scope class_scope;
 
-        public IlClass(Location loc, string name, string il_name, Statements statements) : base(loc) {
+        public IlClass(Location loc, string name, string il_name, Statements statements, string base_class) : base(loc) {
             this.name = name;
             this.il_name = il_name;
             this.statements = statements;
+            this.base_class = base_class;
         }
 
         protected override void SetParent(AstNode parent) {
@@ -1201,7 +1210,7 @@ abstract class AstNode {
 
         public override void CreateNameInfo(Scope scope) {
             class_scope = new Scope(scope);
-            scope.Add(name, new Name.Class(location, name, class_scope, il_name));
+            scope.Add(name, new Name.Class(location, name, class_scope, il_name, base_class));
 
             foreach (AstNode stmt in statements.statements) stmt.CreateNameInfo(class_scope);
         }
@@ -1210,10 +1219,11 @@ abstract class AstNode {
     }
 
     public class Class : IlClass {
-        public Class(Location loc, string name, Statements statements) : base(loc, name, name, statements) {}
+        public Class(Location loc, string name, Statements statements, string bas) : base(loc, name, name, statements, bas) {}
 
         public override void GenIl(Scope scope) {
-            Output.WriteLine($".class {name}");
+            string extends = base_class == null ? "" : $" extends {base_class}";
+            Output.WriteLine($".class {name}{extends}");
             Output.WriteLine("{");
             Output.Indent();
             statements.GenIl(class_scope);
@@ -1274,14 +1284,16 @@ abstract class Name {
     public class Class : Name {
         public readonly string name;
         public readonly string il_name;
+        public readonly string base_class;
         public readonly Func constructor;
         public readonly Scope members;
 
-        public Class(Location loc, string name, Scope members, string il_name) : base(loc) {
+        public Class(Location loc, string name, Scope members, string il_name, string base_class) : base(loc) {
             this.name = name;
             this.members = members;
             constructor = new Func(loc);
             this.il_name = il_name;
+            this.base_class = base_class;
         }
 
         public Name GetMember(string child, Location location) {
@@ -1506,6 +1518,13 @@ class Scope {
 
     public string GetIlType(string type, Location location) => ((Name.Class)LookUp(type, location)).il_name;
     
+    public bool TypesMatch(string expected, string actual, Location loc) {
+        if (expected == actual) return true;
+        var actual_class = (Name.Class)LookUp(actual, loc);
+        if (actual_class.base_class == null) return false;
+        return TypesMatch(expected, actual_class.base_class, loc);
+    }
+
     public void Add(string name, Name value) {
         if (!names.TryAdd(name, value)) {
             Umi.Crash($"`{name}` already defined at {names[name].defined_at}", value.defined_at);

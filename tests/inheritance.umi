@@ -1,0 +1,23 @@
+class Animal {
+    Animal() {}
+
+    Void speak() {
+        print("Default sound")
+    }
+}
+
+class Cat : Animal {
+    Cat() {}
+
+    Void speak() {
+        print("Meow")
+    }
+}
+
+Void main() {
+    Animal a = Animal()
+    a.speak()
+    
+    Animal cat = Cat()
+    cat.speak()
+}

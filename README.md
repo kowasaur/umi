@@ -23,6 +23,7 @@ Note that the .expected files are the expected output of the corresponding .umi 
 -   `while` loops
 -   Aliases
 -   Classes
+    -   All methods are virtual by default
 -   Immutability by default
     -   Immutable references like `final`
     -   Make variables mutable with `mut` keyword
