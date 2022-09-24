@@ -24,6 +24,7 @@ Note that the .expected files are the expected output of the corresponding .umi 
 -   Aliases
 -   Classes
     -   All methods are virtual by default
+    -   Inheritance
 -   Immutability by default
     -   Immutable references like `final`
     -   Make variables mutable with `mut` keyword
@@ -32,7 +33,6 @@ Note that the .expected files are the expected output of the corresponding .umi 
 
 -   Aliases within local scopes
 -   Macros or inline functions
--   Inheritance
 -   Generics
 -   `for` `in` loop
 -   Creating range array with `...`

@@ -797,6 +797,15 @@ abstract class AstNode {
 
         public override void GenIl(Scope scope) {
             FuncInfo func_info = GetFuncInfo(scope);
+
+            // If calling a method without `this`
+            if (!is_method_call && func_info is FuncInfo.Ord) {
+                var fi = (FuncInfo.Ord)func_info;
+                if (fi.parent_class != null && !fi.IsConstructor()) Output.WriteLine("ldarg 0");
+            } else if (func_info is FuncInfo.Base) {
+                Output.WriteLine("ldarg 0");
+            }
+
             foreach (var arg in arguments) arg.GenIl(scope);
             func_info.GenIl(scope);
         }
@@ -1213,6 +1222,21 @@ abstract class AstNode {
             scope.Add(name, new Name.Class(location, name, class_scope, il_name, base_class));
 
             foreach (AstNode stmt in statements.statements) stmt.CreateNameInfo(class_scope);
+
+            // Copy the scope of the base class into this class
+            // * Note that this means the base class must come before this class
+            if (base_class != null) {
+                Name base_name = scope.LookUp(base_class, location);
+                if (!(base_name is Name.Class)) Umi.Crash("Can only inherit from classes", location);
+                var base_class_name = (Name.Class)base_name;
+
+                // `base`
+                foreach (var func_info in base_class_name.constructor.functions) {
+                    class_scope.AddFunction(location, "base", new FuncInfo.Base(func_info.param_types, base_class, location));
+                }
+
+                foreach (var entry in base_class_name.members.names) class_scope.names.TryAdd(entry.Key, entry.Value);
+            }
         }
 
         public override void GenIl(Scope _) {}
@@ -1476,7 +1500,7 @@ abstract class FuncInfo {
                 if (pts[0] == "Void") pts = new string[] {pts[1]};
                 else if (pts[1] == "Void") pts = new string[] {pts[0]};
             }
-            string para_types = string.Join(", ", Array.ConvertAll(pts, p => scope.GetIlType(p, defined_at)));
+            string para_types = scope.ParameterTypesString(pts, defined_at);
 
             return $"{rt} {prefix}{il_name}({para_types})";
         }
@@ -1487,6 +1511,23 @@ abstract class FuncInfo {
             
             string prefix = parent_class == null ? "" : scope.GetIlType(parent_class, defined_at) + "::";
             Output.WriteLine($"{call_word} {IlSignature(scope, prefix)}");
+        }
+    }
+
+    // TODO: static constructors' base
+    // Calling the base constructor within a constructor
+    public class Base : FuncInfo {
+        readonly Location defined_at;
+        readonly string parent_class;
+
+        public Base(string[] ptypes, string parent_class, Location loc): base(ptypes, "Void") {
+            defined_at = loc;
+            this.parent_class = parent_class;
+        }
+
+        public override void GenIl(Scope scope) {
+            string paras = scope.ParameterTypesString(param_types, defined_at);
+            Output.WriteLine($"call instance void {parent_class}::.ctor({paras})");
         }
     }
 
@@ -1518,6 +1559,10 @@ class Scope {
 
     public string GetIlType(string type, Location location) => ((Name.Class)LookUp(type, location)).il_name;
     
+    public string ParameterTypesString(string[] param_types, Location location) {
+        return string.Join(", ", Array.ConvertAll(param_types, p => GetIlType(p, location)));
+    }
+
     public bool TypesMatch(string expected, string actual, Location loc) {
         if (expected == actual) return true;
         var actual_class = (Name.Class)LookUp(actual, loc);

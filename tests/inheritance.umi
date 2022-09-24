@@ -1,23 +1,51 @@
 class Animal {
-    Animal() {}
+    String name
 
-    Void speak() {
-        print("Default sound")
-    }
+    Animal(String name) { this.name = name }
+
+    Void speak() { print("Default sound") }
+
+    String toString() { "animal named " + name }
 }
 
 class Cat : Animal {
     Cat() {}
 
-    Void speak() {
-        print("Meow")
+    Void speak() { meow() }
+
+    Void meow() { print("Meow") }
+}
+
+class Dog : Animal {
+    Int age
+
+    Dog(String name, Int age) {
+        base(name)
+        this.age = age
+    }
+}
+
+class Human : Animal {
+    Human(String name) { base(name) }
+
+    Void speak() { 
+        print("Hello my name is " + name)
+        print("I am not an " + toString())
     }
 }
 
 Void main() {
-    Animal a = Animal()
+    Animal a = Animal("alfred")
     a.speak()
-    
+    print(a.toString())
+
     Animal cat = Cat()
     cat.speak()
+
+    Dog dog = Dog("spot", 5)
+    print(dog.toString())
+    print(dog.age)
+
+    Animal joe = Human("Joe")
+    joe.speak()
 }
