@@ -42,7 +42,7 @@
         },
         "operators": {
             "name": "keyword.operator",
-            "match": "[=+\\-*\\/%|&><!]+"
+            "match": "[=+\\-*\\/%|&><!]+|\\bas\\b"
         }
     },
     "scopeName": "source.umi"

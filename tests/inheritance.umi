@@ -41,6 +41,8 @@ Void main() {
 
     Animal cat = Cat()
     cat.speak()
+    Cat cat_fr = cat as Cat
+    cat_fr.meow()
 
     Dog dog = Dog("spot", 5)
     print(dog.toString())
