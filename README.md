@@ -26,7 +26,7 @@ Note that the .expected files are the expected output of the corresponding .umi 
     -   All methods are virtual by default
     -   Inheritance
 -   Immutability by default
-    -   Immutable references like `final`
+    -   Immutable references like `final` in Java
     -   Make variables mutable with `mut` keyword
 
 ### Planned

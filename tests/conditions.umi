@@ -22,4 +22,13 @@ Void main() {
     } else {
         print("maths is broken")
     }
+
+    Int number = if variable != "unmodified" {
+        Int a = 3 * 4
+        a * 5 + 9
+    } else {
+        print("this will not print")
+        0
+    }
+    print(if number >= 69 { "wow you can use if statements as values" } else { ":(" })
 }

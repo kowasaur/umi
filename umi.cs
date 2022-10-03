@@ -427,7 +427,7 @@ abstract class Grammar {
         var SUBEXPRESSION = new Pattern ("SUBEXPRESSION", new Grammar[] {LPARAN, null, RPARAN}, (_, nodes) => nodes[1]);
 
         // A single term in an expresion
-        var TERM = OneOf("TERM", new Grammar[] {STRING, CHAR, INTEGER, BOOLEAN, null, IDENTIFIER, SUBEXPRESSION});
+        var TERM = OneOf("TERM", new Grammar[] {STRING, CHAR, INTEGER, BOOLEAN, null, null, IDENTIFIER, SUBEXPRESSION});
 
         var POSTFIX = new Pattern("POSTFIX", new Grammar[] {TERM, OPERATOR}, (loc, nodes) => {
             string name = ValueText(nodes[1]);
@@ -527,6 +527,7 @@ abstract class Grammar {
             return new AstNode.IfElse(loc, nodes[1], if_stmts, (AstNode.Statements)nodes[3]);
         });
         ELSE_PART.possible_patterns[1][2] = IF_STMT;
+        TERM.possible_patterns[5][0] = IF_STMT;
 
         var WHILE = new Pattern("WHILE", new Grammar[] {new Tok(Token.Type.WHILE), EXPRESSION, LOCAL_BLOCK}, 
             (loc, nodes) => new AstNode.While(loc, nodes[1], (AstNode.Statements)nodes[2])
@@ -650,10 +651,12 @@ abstract class AstNode {
     AstNode node_parent;
 
     public AstNode(Location loc) => location = loc;
+    void NotImplemented() => throw new NotImplementedException(location.ToString());
     public virtual string Type(Scope scope) => "Void";
-    public virtual void CreateNameInfo(Scope scope) => throw new NotImplementedException();
-    public virtual void GenIl(Scope scope) => throw new NotImplementedException();
+    public virtual void CreateNameInfo(Scope scope) => NotImplemented();
+    public virtual void GenIl(Scope scope) => NotImplemented();
     protected virtual void SetParent(AstNode parent) => node_parent = parent;
+    protected virtual void DeclareVariables(Scope scope, List<string> local_var_types) {}
 
     // Returns null if there is no ancestor of that type
     public T GetAncestorOfType<T>() where T : AstNode {
@@ -766,6 +769,10 @@ abstract class AstNode {
             return $"Function call `{name}` with arguments `{string.Join("`,`", str_args)}`";
         }
 
+        protected override void DeclareVariables(Scope scope, List<string> local_var_types) {
+            foreach (var arg in arguments) arg.DeclareVariables(scope, local_var_types);
+        }
+
         FuncInfo GetFuncInfo(Scope scope) {
             Name maybe_func;
             if (is_method_call) {
@@ -849,6 +856,10 @@ abstract class AstNode {
             value.SetParent(this);
         }
 
+        protected override void DeclareVariables(Scope scope, List<string> local_var_types) {
+            value.DeclareVariables(scope, local_var_types);
+        }
+
         public override void GenIl(Scope scope) {
             Name maybe_var = scope.LookUp(name, location);
             if (!(maybe_var is Name.Varish)) Umi.Crash("Can only reassign local variables and fields", location);
@@ -924,17 +935,11 @@ abstract class AstNode {
         // This mainly exists as a separate function for IfElse
         protected static Scope SubScope(Scope scope, List<string> local_var_types, AstNode[] stmts) {
             var new_scope = new Scope(scope);
-            foreach (var stmt in stmts) {
-                if (stmt is AstNode.VarDef) {
-                    ((AstNode.VarDef)stmt).DeclareVariable(scope, new_scope, local_var_types);
-                } else if (stmt is AstNode.Block) {
-                    ((AstNode.Block)stmt).DeclareVariables(new_scope, local_var_types);
-                }
-            }
+            foreach (var stmt in stmts) stmt.DeclareVariables(new_scope, local_var_types);
             return new_scope;
         }
 
-        protected virtual void DeclareVariables(Scope scope, List<string> local_var_types) {
+        protected override void DeclareVariables(Scope scope, List<string> local_var_types) {
             block_scope = SubScope(scope, local_var_types, statements.statements);
         }
 
@@ -970,7 +975,10 @@ abstract class AstNode {
             condition.SetParent(this);
         }
 
-        public override void GenIl(Scope scope) => Output.WriteLabel(IfIl(scope));
+        public override void GenIl(Scope scope) {
+            if (Type(scope) != "Void") Umi.Crash("else block is necessary when if statement is used as value", location);
+            Output.WriteLabel(IfIl(scope));
+        }
     }
 
     public class IfElse : If {
@@ -1026,9 +1034,10 @@ abstract class AstNode {
             this.is_mutable = is_mutable;
         }
 
-        public void DeclareVariable(Scope scope, Scope new_scope, List<string> local_var_types) {
+        protected override void DeclareVariables(Scope new_scope, List<string> local_var_types) {
             new_scope.Add(assignment.name, new Name.Var(type, false, local_var_types.Count, location, is_mutable));
-            local_var_types.Add(scope.GetIlType(type, location));
+            local_var_types.Add(new_scope.GetIlType(type, location));
+            assignment.DeclareVariables(new_scope, local_var_types);
         }
 
         protected override void SetParent(AstNode parent) {

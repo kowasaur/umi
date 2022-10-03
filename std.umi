@@ -34,6 +34,9 @@ il Int -(Void, Int) "neg"
 ilf Bool ==(String, String) "string::op_Equality"
 il Bool ==(Bool, Bool) "ceq"
 il Bool ==(Int, Int) "ceq"
+ilf Bool !=(String, String) "string::op_Inequality"
+Bool !=(Bool a, Bool b) { (a == b) == false }
+Bool !=(Int a, Int b) { (a == b) == false }
 il Bool >(Int, Int) "cgt"
 il Bool <(Int, Int) "clt"
 Bool >=(Int a, Int b) { !(a < b) }
