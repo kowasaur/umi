@@ -650,7 +650,7 @@ abstract class AstNode {
     AstNode node_parent;
 
     public AstNode(Location loc) => location = loc;
-    public virtual string Type(Scope scope) => throw new NotImplementedException();
+    public virtual string Type(Scope scope) => "Void";
     public virtual void CreateNameInfo(Scope scope) => throw new NotImplementedException();
     public virtual void GenIl(Scope scope) => throw new NotImplementedException();
     protected virtual void SetParent(AstNode parent) => node_parent = parent;
@@ -687,7 +687,6 @@ abstract class AstNode {
     // For prefix and postfix operators
     public class Nothing : AstNode {
         public Nothing() : base(new Location(-1, -1, null, -1)) {}
-        public override string Type(Scope _) => "Void";
         public override void GenIl(Scope _) {}
     }
 
@@ -902,8 +901,17 @@ abstract class AstNode {
             foreach (var stmt in statements) stmt.SetParent(parent);
         }
 
+        public override string Type(Scope scope) => statements.Length == 0 ? "Void" : statements.Last().Type(scope);
+
         public override void GenIl(Scope scope) { 
             foreach (var stmt in statements) stmt.GenIl(scope);
+        }
+
+        // Check everything except last statement is Void
+        // Assumes the last statement will be checked elsewhere
+        public void GenIlAndTypeCheck(Scope scope) {
+            foreach (var stmt in statements.SkipLast(1)) stmt.ExpectType("Void", scope);
+            GenIl(scope);
         }
     }
 
@@ -930,12 +938,14 @@ abstract class AstNode {
             block_scope = SubScope(scope, local_var_types, statements.statements);
         }
 
-        protected void GenStatements() => statements.GenIl(block_scope);
-
+        protected void GenStatements() => statements.GenIlAndTypeCheck(block_scope);
+        
         protected override void SetParent(AstNode parent) {
             base.SetParent(parent);
             statements.SetParent(this);
         }
+
+        public override string Type(Scope _) => statements.Type(block_scope);
     }
 
     public class If : Block {
@@ -976,12 +986,19 @@ abstract class AstNode {
             else_scope = SubScope(scope, local_var_types, else_statements.statements);
         }
 
+        public override string Type(Scope _) {
+            if (else_statements.Type(else_scope) != statements.Type(block_scope)) {
+                Umi.Crash("If and Else block must have the same return type", location);
+            }
+            return base.Type(_);
+        }
+
         public override void GenIl(Scope scope) {
             string if_end = IfIl(scope);
             string else_end = else_statements.end.Label();
             Output.WriteLine($"br {else_end}");
             Output.WriteLabel(if_end);
-            else_statements.GenIl(else_scope);
+            else_statements.GenIlAndTypeCheck(else_scope);
             Output.WriteLabel(else_end);
         }
     }
@@ -1032,7 +1049,10 @@ abstract class AstNode {
         }
         
         public override void GenIl(Scope scope) {
-            expression?.GenIl(scope);
+            if (expression != null) {
+                expression.ExpectType(GetAncestorOfType<AstNode.FuncDef>().Type(scope), scope);
+                expression.GenIl(scope);
+            }
             Output.WriteLine("ret");
         }
     }
@@ -1088,6 +1108,8 @@ abstract class AstNode {
             parameters = paras ?? new Param[0];
         }
 
+        public override string Type(Scope _) => return_type;
+
         public override void CreateNameInfo(Scope scope) {
             string parent_class = ParentClassName();
             func_info = new FuncInfo.Ord(parameters, return_type, is_static, name, location, parent_class);
@@ -1128,6 +1150,7 @@ abstract class AstNode {
                 Output.WriteLine(")");
             }
             
+            statements.ExpectType(name == return_type ? "Void" : return_type, block_scope);
             GenStatements();
             Output.WriteLine("ret");
             Output.Unindent();
