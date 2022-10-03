@@ -44,7 +44,7 @@ class Token {
         IDENTIFIER, OPERATOR,
         STRING, CHAR, INTEGER, BOOLEAN,
         LPARAN, RPARAN, LCURLY, RCURLY,
-        NEWLINE, COMMA, DOT, EQUAL, COLON,
+        NEWLINE, COMMA, EQUAL, COLON,
         IL, ILF, ALIAS, CLASS, MUT, STATIC,
         IF, ELSE, WHILE,
         RETURN, BREAK, CONTINUE,
@@ -106,7 +106,7 @@ class Lexer {
         return content;
     }
 
-    static bool IsOperatorChar(char c) => "+-*/%&|=><!".Contains(c);
+    static bool IsOperatorChar(char c) => "+-*/%&|=><!.".Contains(c);
     
     public List<Token> Lex(List<Token> tokens) {
         while (i < file.Length) {
@@ -199,9 +199,6 @@ class Lexer {
                     break;
                 case ',':
                     type = Token.Type.COMMA;
-                    break;
-                case '.':
-                    type = Token.Type.DOT;
                     break;
                 case ':':
                     type = Token.Type.COLON;
@@ -383,6 +380,7 @@ abstract class Grammar {
     }
 
     static readonly string[][] OPERATOR_PRECEDENCE = {
+        new string[] {"."},
         new string[] {"**"},
         new string[] {"*", "/", "%"},
         new string[] {"+", "-"},
@@ -395,7 +393,6 @@ abstract class Grammar {
         var LPARAN = new Tok(Token.Type.LPARAN);
         var RPARAN = new Tok(Token.Type.RPARAN);
         var COMMA = new Tok(Token.Type.COMMA);
-        var DOT = new Tok(Token.Type.DOT);
         var COLON = new Tok(Token.Type.COLON);
         var EQUAL = new Tok(Token.Type.EQUAL);
         var MUT = new Tok(Token.Type.MUT, optional: true);
@@ -427,18 +424,10 @@ abstract class Grammar {
             (_, nodes) => new AstNode.Identifier((AstNode.Tok)nodes[0])
         );
 
-        // TODO: allow the left side to be any expression
-        // class.field etc
-        var FULLNAME = new Pattern("FULLNAME", new Grammar[] {IDENTIFIER, DOT, IDENTIFIER}, 
-            (loc, nodes) => new AstNode.Dot(loc, nodes[0], ValueText(nodes[2]))
-        );
-
-        var SUBEXPRESSION = new Pattern ("SUBEXPRESSION", new Grammar[] {LPARAN, null, RPARAN}, 
-            (_, nodes) => nodes[1]
-        );
+        var SUBEXPRESSION = new Pattern ("SUBEXPRESSION", new Grammar[] {LPARAN, null, RPARAN}, (_, nodes) => nodes[1]);
 
         // A single term in an expresion
-        var TERM = OneOf("TERM", new Grammar[] {STRING, CHAR, INTEGER, BOOLEAN, null, FULLNAME, IDENTIFIER, SUBEXPRESSION});
+        var TERM = OneOf("TERM", new Grammar[] {STRING, CHAR, INTEGER, BOOLEAN, null, IDENTIFIER, SUBEXPRESSION});
 
         var POSTFIX = new Pattern("POSTFIX", new Grammar[] {TERM, OPERATOR}, (loc, nodes) => {
             string name = ValueText(nodes[1]);
@@ -489,6 +478,10 @@ abstract class Grammar {
                 if (op == "as") {
                     if (!(right is AstNode.Identifier)) Umi.Crash("Must cast to class", right.location);
                     parts[x - 1] = new AstNode.TypeCast(ValueText(right), left, op_node.location);
+                } else if (op == ".") {
+                    if (right is AstNode.Identifier) parts[x - 1] = new AstNode.Dot(left.location, left, ValueText(right));
+                    else if (right is AstNode.FuncCall) parts[x - 1] = ((AstNode.FuncCall)right).AsMethodCall(left);
+                    else Umi.Crash("Not valid class member", right.location);
                 } else {
                     parts[x - 1] = new AstNode.FuncCall(op_node.location, op, new AstNode[] {left, right});
                 }
@@ -499,25 +492,17 @@ abstract class Grammar {
         SUBEXPRESSION.possible_patterns[0][1] = EXPRESSION;
 
         var ARGUMENTS = Multiple<AstNode>("ARGUMENTS", new Grammar[] {EXPRESSION, COMMA}, optional: true);
-        var NORM_FUNC_CALL = new Pattern("NORM_FUNC_CALL", new Grammar[] {IDENTIFIER, LPARAN, ARGUMENTS, RPARAN}, (loc, nodes) => {
+        var FUNC_CALL = new Pattern("FUNC_CALL", new Grammar[] {IDENTIFIER, LPARAN, ARGUMENTS, RPARAN}, (loc, nodes) => {
             AstNode[] args = nodes[2] == null ? new AstNode[0] : MultiArray(nodes, 2);
             return new AstNode.FuncCall(loc, ValueText(nodes[0]), args);
         });
-        var METHOD_CALL = new Pattern("METHOD_CALL", new Grammar[] {FULLNAME, LPARAN, ARGUMENTS, RPARAN}, (loc, nodes) => {
-            AstNode[] args = nodes[2] == null ? new AstNode[0] : MultiArray(nodes, 2);
-            AstNode.Dot dot = (AstNode.Dot)nodes[0];
-            return new AstNode.FuncCall(loc, dot.child, args.Prepend(dot.parent).ToArray(), is_method_call: true);
-        });
-        var FUNC_CALL = OneOf("FUNC_CALL", new Grammar[] {METHOD_CALL, NORM_FUNC_CALL});
         TERM.possible_patterns[4][0] = FUNC_CALL;
 
-        var FIELD_ASSIGN = new Pattern("FIELD_ASSIGN", new Grammar[] {FULLNAME, EQUAL, EXPRESSION}, 
-            (loc, nodes) => new AstNode.FieldAssign(loc, (AstNode.Dot)nodes[0], nodes[2])
-        );
-
-        var VAR_ASSIGN = new Pattern("VAR_ASSIGN", new Grammar[] {IDENTIFIER, EQUAL, EXPRESSION}, 
-            (loc, nodes) => new AstNode.VarAssign(loc, ValueText(nodes[0]), nodes[2])
-        );
+        var VAR_ASSIGN = new Pattern("VAR_ASSIGN", new Grammar[] {EXPRESSION, EQUAL, EXPRESSION}, (loc, nodes) => {
+            if (nodes[0] is AstNode.Identifier) return new AstNode.VarAssign(loc, ValueText(nodes[0]), nodes[2]);
+            if (nodes[0] is AstNode.Dot) return new AstNode.FieldAssign(loc, (AstNode.Dot)nodes[0], nodes[2]);
+            return null; // If you Umi.Crash() here, the parser breaks
+        });
 
         var VAR_DEF = new Pattern("VAR_DEF", new Grammar[] {MUT, IDENTIFIER, VAR_ASSIGN}, (loc, nodes) => {
             string type = ValueText(nodes[1]);
@@ -554,7 +539,7 @@ abstract class Grammar {
         var CONTINUE = new Pattern("CONTINUE", new Grammar[] {new Tok(Token.Type.CONTINUE)}, (loc, _) => new AstNode.Continue(loc));
 
         var LOCAL_STMTS = NewStatements("LOCAL", 
-            new Grammar[] {VAR_DEF, VAR_ASSIGN, FIELD_ASSIGN, EXPRESSION, IF_STMT, WHILE, RETURN, BREAK, CONTINUE}
+            new Grammar[] {VAR_DEF, VAR_ASSIGN, EXPRESSION, IF_STMT, WHILE, RETURN, BREAK, CONTINUE}
         );
         LOCAL_BLOCK.possible_patterns[0][1] = LOCAL_STMTS;
 
@@ -736,6 +721,8 @@ abstract class AstNode {
     public class Identifier : Value {
         public Identifier(Tok tok): base(tok) {}
 
+        public override string ToString() => $"Identifier with value `{content}`";
+
         public override string Type(Scope scope) {
             Name result = scope.LookUp(content, location);
             if (result is Name.Varish) return ((Name.Varish)result).Type(scope);
@@ -769,6 +756,15 @@ abstract class AstNode {
             this.name = name;
             arguments = args;
             this.is_method_call = is_method_call;
+        }
+
+        public FuncCall AsMethodCall(AstNode left_of_dot) {
+            return new AstNode.FuncCall(location, name, arguments.Prepend(left_of_dot).ToArray(), true);
+        }
+
+        public override string ToString() {
+            var str_args = Array.ConvertAll(arguments, a => a.ToString());
+            return $"Function call `{name}` with arguments `{string.Join("`,`", str_args)}`";
         }
 
         FuncInfo GetFuncInfo(Scope scope) {
