@@ -28,6 +28,7 @@ Note that the .expected files are the expected output of the corresponding .umi 
 -   Immutability by default
     -   Immutable references like `final` in Java
     -   Make variables mutable with `mut` keyword
+-   Including other umi files (importing)
 
 ### Planned
 
@@ -41,4 +42,3 @@ Note that the .expected files are the expected output of the corresponding .umi 
 -   Anonymous functions
 -   Switch cases
 -   Namespaces
--   Including other umi files (importing)

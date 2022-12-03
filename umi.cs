@@ -65,14 +65,16 @@ class Lexer {
     delegate bool ContinueConsuming(char next);
 
     public Lexer(string file_path) {
-        try {
-            file = File.ReadAllText(file_path);
-        }
-        catch (FileNotFoundException) {
+        string path = file_path;
+        if (!File.Exists(file_path)) path = AppDomain.CurrentDomain.BaseDirectory + path; // path of exe
+        if (!File.Exists(path)) {
+            Console.WriteLine(path);
             Console.WriteLine(file_path + " does not exist");
             Environment.Exit(1);
         }
-        this.file_path = file_path;
+
+        file = File.ReadAllText(path);
+        this.file_path = path;
     }
     
     void Increment() {
