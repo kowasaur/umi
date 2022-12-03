@@ -1,0 +1,6 @@
+include "./tests/include/message1.umi"
+include "./tests/include/message2.umi"
+
+Void otherFileFunction() {
+    print(MESSAGE1 + MESSAGE2)
+}

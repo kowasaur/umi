@@ -17,7 +17,7 @@
                 { "name": "keyword.other", "match": "\\b(il|ilf)\\b" },
                 {
                     "name": "keyword.control",
-                    "match": "\\b(if|else|while|return|break|continue)\\b"
+                    "match": "\\b(if|else|while|return|break|continue|include)\\b"
                 },
                 { "name": "storage.type", "match": "\\b(class|alias)\\b" },
                 { "name": "storage.modifier", "match": "\\b(mut|static)\\b" }

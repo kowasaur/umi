@@ -46,7 +46,7 @@ class Token {
         LPARAN, RPARAN, LCURLY, RCURLY,
         NEWLINE, COMMA, EQUAL, COLON,
         IL, ILF, ALIAS, CLASS, MUT, STATIC,
-        IF, ELSE, WHILE,
+        IF, ELSE, WHILE, INCLUDE,
         RETURN, BREAK, CONTINUE,
         AS
     }
@@ -168,6 +168,9 @@ class Lexer {
                         type = Token.Type.OPERATOR;
                         value = "as";
                         break;
+                    case "include":
+                        type = Token.Type.INCLUDE;
+                        break;
                     default:
                         type = Token.Type.IDENTIFIER;
                         value = content;
@@ -232,6 +235,8 @@ class Lexer {
         return tokens;
     }
 
+    public List<Token> Lex() => Lex(new List<Token>());
+
 }
 
 abstract class Grammar {
@@ -241,7 +246,7 @@ abstract class Grammar {
     public Grammar(bool optional) => this.optional = optional; 
 
     static List<Token> tokens;
-    static int i = 0; // the cursor in tokens
+    static int i; // the cursor in tokens
 
     // For basic error reporting
     static Token furthest_got;
@@ -627,20 +632,30 @@ abstract class Grammar {
             return new AstNode.IlClass(loc, ValueText(nodes[2]), il, (AstNode.Statements)nodes[4], null);
         });
 
-        var GLOBAL_STATEMENTS = NewStatements("GLOBAL", new Grammar[] {FUNC_DEF, IL_FUNC, ALIAS, CLASS_DEF, IL_CLASS});
+        var INCLUDE = new Pattern("INCLUDE", new Grammar[] {new Tok(Token.Type.INCLUDE), STRING}, 
+            (loc, nodes) => new AstNode.Include(loc, (AstNode.StringLiteral)nodes[1])
+        );
+
+        var GLOBAL_STATEMENTS = NewStatements("GLOBAL", new Grammar[] {INCLUDE, FUNC_DEF, IL_FUNC, ALIAS, CLASS_DEF, IL_CLASS});
 
         var PROGRAM = new Pattern("PROGRAM", new Grammar[] {GLOBAL_STATEMENTS}, null);
         return PROGRAM;
     }
 
     public static AstNode.Program ParseTokens(List<Token> toks) {
+        i = 0;
         tokens = toks;
         furthest_got = toks[0];
         List<AstNode> ast = CreateProgramGrammar().Parse();
         if (ast == null || i != tokens.Count) {
             Umi.Crash($"Expected `{furthest_expected}` but found `{furthest_got.type}`", furthest_got.location);
         }
-        return new AstNode.Program(MultiArray(ast, 0));
+
+        List<AstNode> statements = ((AstNode.Multiple<AstNode>)ast[0]).ToList();
+        foreach (var include in statements.Where(s => s is AstNode.Include).Cast<AstNode.Include>()) {
+            statements = ParseTokens(new Lexer(include.path).Lex()).global_statements.Concat(statements).ToList();
+        }
+        return new AstNode.Program(statements);
     }
 
 }
@@ -684,6 +699,11 @@ abstract class AstNode {
         public T[] ToArray() {
             list.Reverse();
             return list.ToArray();
+        }
+        // This should only be called once since it mutates list
+        public List<T> ToList() {
+            list.Reverse();
+            return list;
         }
     }
 
@@ -1313,10 +1333,17 @@ abstract class AstNode {
         }
     }
 
-    public class Program : AstNode {
-        AstNode[] global_statements;
+    public class Include : AstNode {
+        public string path;
+        public Include(Location loc, AstNode.StringLiteral path_node) : base(loc) => path = path_node.content;
+        public override void CreateNameInfo(Scope _) {}
+        public override void GenIl(Scope _) {}
+    }
 
-        public Program(AstNode[] s) : base(s[0].location) => global_statements = s;
+    public class Program : AstNode {
+        public readonly List<AstNode> global_statements;
+
+        public Program(List<AstNode> s) : base(s[0].location) => global_statements = s;
 
         public override void CreateNameInfo(Scope scope) {
             foreach(AstNode statement in global_statements) {
@@ -1673,7 +1700,7 @@ class Umi {
             Environment.Exit(1);
         }
 
-        List<Token> tokens = new Lexer("std.umi").Lex(new List<Token>());
+        List<Token> tokens = new Lexer("std.umi").Lex();
         tokens = new Lexer(args[0]).Lex(tokens);
         AstNode.Program ast = Grammar.ParseTokens(tokens);
 
