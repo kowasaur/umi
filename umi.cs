@@ -68,7 +68,6 @@ class Lexer {
         string path = file_path;
         if (!File.Exists(file_path)) path = AppDomain.CurrentDomain.BaseDirectory + path; // path of exe
         if (!File.Exists(path)) {
-            Console.WriteLine(path);
             Console.WriteLine(file_path + " does not exist");
             Environment.Exit(1);
         }
@@ -655,6 +654,10 @@ abstract class Grammar {
 
         List<AstNode> statements = ((AstNode.Multiple<AstNode>)ast[0]).ToList();
         foreach (var include in statements.Where(s => s is AstNode.Include).Cast<AstNode.Include>()) {
+            if (Path.GetExtension(include.path) == ".cs") {
+                Output.cs_paths.Add(include.path);
+                continue;
+            }
             statements = ParseTokens(new Lexer(include.path).Lex()).global_statements.Concat(statements).ToList();
         }
         return new AstNode.Program(statements);
@@ -1357,6 +1360,7 @@ abstract class AstNode {
         public override void GenIl(Scope scope) {
             File.Delete("output.il");
             Output.WriteLine(".assembly UmiProgram {}\n");
+            Output.WriteCsIl();
             foreach(AstNode statement in global_statements) statement.GenIl(scope);
         }
     }
@@ -1367,6 +1371,8 @@ class Output {
     static int indentation = 0;
     // With chains of if else, they all go to the end so they create duplicate labels
     static HashSet<string> labels = new HashSet<string>();
+    // For compiling C# files later
+    public static readonly List<string> cs_paths = new List<string>();
 
     public static void WriteLine(string il_code) {
         // TODO allow the output file to be changed
@@ -1379,6 +1385,19 @@ class Output {
             Output.WriteLine($"{label}:");
             labels.Add(label);
         }
+    }
+
+    // Compile the C# files and then put the il into the output
+    public static void WriteCsIl() {
+        foreach (string path in cs_paths) {
+            Umi.RunCommand("mcs", "-out:temp_cs.dll -target:library " + path);
+            Umi.RunCommand("monodis", "--output=temp_cs.il temp_cs.dll");
+            // ? not sure whether this will always work tbh with the version
+            string necessary_il = File.ReadAllText("temp_cs.il").Split(".ver  0:0:0:0\n}")[1];
+            WriteLine(necessary_il);
+        }
+        File.Delete("temp_cs.dll");
+        File.Delete("temp_cs.il");
     }
 
     public static void Indent() => indentation += 4;
@@ -1696,6 +1715,12 @@ class Umi {
         Environment.Exit(1);
     }
 
+    public static void RunCommand(string command, string args) {
+        Process process = Process.Start(command, args);
+        process.WaitForExit();
+        if (process.ExitCode != 0) Environment.Exit(1);
+    }
+
     static void Main(string[] args) {
         if (args.Length < 1) {
             Console.WriteLine("You must specify the path to the file");
@@ -1710,18 +1735,7 @@ class Umi {
         ast.CreateNameInfo(global_namespace);
         ast.GenIl(global_namespace);
 
-        using (Process ilasm = new Process()) {
-            ilasm.StartInfo.FileName = "ilasm";
-            ilasm.StartInfo.Arguments = "output.il";
-            ilasm.StartInfo.UseShellExecute = false;
-            ilasm.StartInfo.RedirectStandardOutput = true;
-            ilasm.Start();
-            ilasm.WaitForExit();
-            if (ilasm.ExitCode != 0) {
-                Console.WriteLine("ilasm failed to assemble output.il");
-                Environment.Exit(1);
-            }
-        }
+        RunCommand("ilasm", "-quiet output.il");
     }
 
 }
