@@ -2,7 +2,7 @@ include "./tests/include/other.umi"
 include "./tests/include/cs.cs"
 
 il class CS "CS" {
-    static ilf Void func() "Func"
+    ilf static Void func() "Func"
 }
 
 Void main() {

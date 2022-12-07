@@ -43,7 +43,7 @@ class Token {
         NOTHING, // for error reporting
         IDENTIFIER, OPERATOR,
         STRING, CHAR, INTEGER, BOOLEAN,
-        LPARAN, RPARAN, LCURLY, RCURLY,
+        LPARAN, RPARAN, LCURLY, RCURLY, LSQUARE, RSQUARE,
         NEWLINE, COMMA, EQUAL, COLON,
         IL, ILF, ALIAS, CLASS, MUT, STATIC,
         IF, ELSE, WHILE, INCLUDE,
@@ -201,6 +201,12 @@ class Lexer {
                 case '}':
                     type = Token.Type.RCURLY;
                     break;
+                case '[':
+                    type = Token.Type.LSQUARE;
+                    break;
+                case ']':
+                    type = Token.Type.RSQUARE;
+                    break;
                 case ',':
                     type = Token.Type.COMMA;
                     break;
@@ -328,8 +334,8 @@ abstract class Grammar {
     }
 
     // When the pattern is only 1 thing long but there's different possibilites
-    static Pattern OneOf(string name, Grammar[] options) {
-        var pat = new Pattern(name, new Grammar[options.Length][], (_, nodes) => nodes[0]);
+    static Pattern OneOf(string name, Grammar[] options, bool optional = false) {
+        var pat = new Pattern(name, new Grammar[options.Length][], (_, nodes) => nodes[0], optional);
         for (int i = 0; i < options.Length; i++) {
             pat.possible_patterns[i] = new Grammar[] {options[i]}; 
         }
@@ -379,9 +385,9 @@ abstract class Grammar {
     static AstNode[] MultiArray(List<AstNode> nodes, int i) => ((AstNode.Multiple<AstNode>)nodes[i]).ToArray();
     static string ValueText(AstNode node) => ((AstNode.Value)node).content;
     
-    static string[] IlParamTypes(AstNode type_node) {
-        if (type_node == null) return new string[0]; 
-        AstNode.Identifier[] values = ((AstNode.Multiple<AstNode.Identifier>)type_node).ToArray();
+    static string[] IdentifierArray(AstNode multiple_identifiers) {
+        if (multiple_identifiers == null) return new string[0]; 
+        AstNode.Identifier[] values = ((AstNode.Multiple<AstNode.Identifier>)multiple_identifiers).ToArray();
         return Array.ConvertAll(values, v => v.content);
     }
 
@@ -398,6 +404,8 @@ abstract class Grammar {
     static Pattern CreateProgramGrammar() {
         var LPARAN = new Tok(Token.Type.LPARAN);
         var RPARAN = new Tok(Token.Type.RPARAN);
+        var LSQUARE = new Tok(Token.Type.LSQUARE);
+        var RSQUARE = new Tok(Token.Type.RSQUARE);
         var COMMA = new Tok(Token.Type.COMMA);
         var COLON = new Tok(Token.Type.COLON);
         var EQUAL = new Tok(Token.Type.EQUAL);
@@ -551,40 +559,41 @@ abstract class Grammar {
         LOCAL_BLOCK.possible_patterns[0][1] = LOCAL_STMTS;
 
         // function definition identifier
-        var FUNC_IDEN = OneOf("FUNC_IDEN", new Grammar[] {IDENTIFIER, OPERATOR});
+        var FUNC_IDEN = OneOf("FUNC_IDEN", new Grammar[] {IDENTIFIER, OPERATOR}, optional: true);
+
+        var GENERICS = new Pattern("GENERICS", 
+            new Grammar[] {LSQUARE, Multiple<AstNode.Identifier>("GENERIC_LIST", new Grammar[] {IDENTIFIER, COMMA}), RSQUARE},
+            (loc, nodes) => nodes[1], optional: true
+        );
+
+        var FUNC_DEF_HEAD = new Pattern("FUNC_DEF_HEAD", new Grammar[] {STATIC, IDENTIFIER, FUNC_IDEN, GENERICS}, (loc, nodes) => {
+            if (nodes[2] == null) nodes[2] = nodes[1]; // constructor
+            string return_type = ValueText(nodes[1]);
+            string name = ValueText(nodes[2]);
+            string[] generics = IdentifierArray(nodes[3]);
+            return new AstNode.FuncDefHead(loc, name, return_type, generics, nodes[0] != null);
+        });
 
         var PARAM = new Pattern("PARAM", new Grammar[] {IDENTIFIER, IDENTIFIER}, 
             (loc, nodes) => new AstNode.Param(loc, ValueText(nodes[0]), ValueText(nodes[1]))
         );
         var PARAM_LIST = Multiple<AstNode.Param>("PARAM_LIST", new Grammar[] {PARAM, COMMA}, optional: true);
         var FUNC_DEF = new Pattern("FUNC_DEF", 
-            new Grammar[] {IDENTIFIER, FUNC_IDEN, LPARAN, PARAM_LIST, RPARAN, LOCAL_BLOCK},
-            (loc, nodes) => {
-                string return_type = ValueText(nodes[0]);
-                string name = ValueText(nodes[1]);
+            new Grammar[] {FUNC_DEF_HEAD, LPARAN, PARAM_LIST, RPARAN, LOCAL_BLOCK},
+            (_, nodes) => {
                 AstNode.Param[] parameters = null;
-                if (nodes[3] != null) parameters = ((AstNode.Multiple<AstNode.Param>)nodes[3]).ToArray();
-                return new AstNode.FuncDef(loc, true, return_type, name, (AstNode.Statements)nodes[5], parameters);
-            }
-        );
-
-        var FUNC_TYPE_NAME = new Pattern("FUNC_TYPE_NAME", new Grammar[] {IDENTIFIER, FUNC_IDEN.NewOptional("OPT_IDEN")}, 
-            (loc, nodes) => {
-                if (nodes[1] == null) nodes[1] = nodes[0];
-                // Maybe a Field shouldn't be used
-                return new AstNode.Field(loc, ValueText(nodes[0]), ValueText(nodes[1]));
+                if (nodes[2] != null) parameters = ((AstNode.Multiple<AstNode.Param>)nodes[2]).ToArray();
+                return new AstNode.FuncDef((AstNode.FuncDefHead)nodes[0], (AstNode.Statements)nodes[4], parameters);
             }
         );
 
         var TYPE_LIST = Multiple<AstNode.Identifier>("TYPE_LIST", new Grammar[] {IDENTIFIER, COMMA}, optional: true);
         var IL_FUNC = new Pattern("IL_FUNC", 
-            new Grammar[] {ILish, IDENTIFIER, FUNC_IDEN, LPARAN, TYPE_LIST, RPARAN, STRING},
+            new Grammar[] {ILish, FUNC_DEF_HEAD, LPARAN, TYPE_LIST, RPARAN, STRING},
             (loc, nodes) => {
-                string type = ValueText(nodes[1]);
-                string name = ValueText(nodes[2]);
-                string il = ValueText(nodes[6]);
+                string il = ValueText(nodes[5]);
                 bool is_ilf = ((AstNode.Tok)nodes[0]).token.type == Token.Type.ILF;
-                return new AstNode.IlFunc(loc, name, il, IlParamTypes(nodes[4]), type, is_ilf, true);
+                return new AstNode.IlFunc(loc, (AstNode.FuncDefHead)nodes[1], il, IdentifierArray(nodes[3]), is_ilf);
             }
         );
 
@@ -596,37 +605,16 @@ abstract class Grammar {
             (loc, nodes) => new AstNode.Field(loc, ValueText(nodes[2]), ValueText(nodes[3]), nodes[1] != null, nodes[0] != null)
         );
         
-        var METHOD = new Pattern("METHOD", 
-            new Grammar[] {STATIC, FUNC_TYPE_NAME, LPARAN, PARAM_LIST, RPARAN, LOCAL_BLOCK},
-            (loc, nodes) => {
-                string return_type = ((AstNode.Field)nodes[1]).type;
-                string name = ((AstNode.Field)nodes[1]).name;
-                AstNode.Param[] parameters = null;
-                if (nodes[3] != null) parameters = ((AstNode.Multiple<AstNode.Param>)nodes[3]).ToArray();
-                return new AstNode.FuncDef(loc, nodes[0] != null, return_type, name, (AstNode.Statements)nodes[5], parameters);
-            }
-        );
-
         var INHERIT = new Pattern("INHERIT", new Grammar[] {COLON, IDENTIFIER}, (loc, nodes) => nodes[1], optional: true);
 
-        var CLASS_STMTS = NewStatements("CLASS_STMTS", new Grammar[] {METHOD, FIELD});
+        var CLASS_STMTS = NewStatements("CLASS_STMTS", new Grammar[] {FUNC_DEF, FIELD});
         var CLASS_BLOCK = NewBlock("CLASS_BLOCK", CLASS_STMTS);
         var CLASS_DEF = new Pattern("CLASS_DEF", new Grammar[] {CLASS, IDENTIFIER, INHERIT, CLASS_BLOCK}, (loc, nodes) => {
             string base_class = nodes[2] != null ? ValueText(nodes[2]) : null;
             return new AstNode.Class(loc, ValueText(nodes[1]), (AstNode.Statements)nodes[3], base_class);
         });
 
-        var IL_METHOD = new Pattern("IL_FUNC", new Grammar[] {STATIC, ILish, FUNC_TYPE_NAME, LPARAN, TYPE_LIST, RPARAN, STRING},
-            (loc, nodes) => {
-                AstNode.Field type_name = (AstNode.Field)nodes[2];
-                string il = ValueText(nodes[6]);
-                string[] param_types = IlParamTypes(nodes[4]);
-                bool is_ilf = ((AstNode.Tok)nodes[1]).token.type == Token.Type.ILF;
-                return new AstNode.IlFunc(loc, type_name.name, il, param_types, type_name.type, is_ilf, nodes[0] != null);
-            }
-        );
-
-        var IL_CLASS_STMTS = NewStatements("IL_CLASS_STMTS", new Grammar[] {IL_METHOD});
+        var IL_CLASS_STMTS = NewStatements("IL_CLASS_STMTS", new Grammar[] {IL_FUNC});
         var IL_CLASS_BLOCK = NewBlock("IL_CLASS_BLOCK", IL_CLASS_STMTS);
         var IL_CLASS = new Pattern("IL_CLASS", new Grammar[] {IL, CLASS, IDENTIFIER, STRING, IL_CLASS_BLOCK}, (loc, nodes) => {
             string il = ((AstNode.StringLiteral)nodes[3]).content;
@@ -1126,19 +1114,35 @@ abstract class AstNode {
         }
     }
 
+    public class FuncDefHead : AstNode {
+        public readonly string name;
+        public readonly string return_type;
+        public readonly string[] generics;
+        public readonly bool is_static;
+
+        public FuncDefHead(Location loc, string name, string rt, string[] gens, bool is_static = true) : base(loc) {
+            this.name = name;
+            return_type = rt;
+            generics = gens;
+            this.is_static = is_static;
+        }
+    }
+
     public class FuncDef : Block {
         public readonly string name;
         readonly string return_type;
         readonly Param[] parameters;
-        readonly bool is_static;
+        readonly string[] generics;
+        bool is_static;
 
         public FuncInfo.Ord func_info;
         readonly List<string> local_var_types = new List<string>();
 
-        public FuncDef(Location loc, bool is_static, string rt, string name, Statements stmts, Param[] paras): base(loc, stmts) {
-            this.is_static = is_static;
-            this.name = name;
-            return_type = rt;
+        public FuncDef(FuncDefHead func_def_head, Statements stmts, Param[] paras): base(func_def_head.location, stmts) {
+            is_static = func_def_head.is_static;
+            name = func_def_head.name;
+            return_type = func_def_head.return_type;
+            generics = func_def_head.generics;
             parameters = paras ?? new Param[0];
         }
 
@@ -1146,6 +1150,7 @@ abstract class AstNode {
 
         public override void CreateNameInfo(Scope scope) {
             string parent_class = ParentClassName();
+            if (parent_class == null) is_static = true;
             func_info = new FuncInfo.Ord(parameters, return_type, is_static, name, location, parent_class);
             
             AddToScope(scope, parent_class, func_info, name, return_type, is_static);
@@ -1198,19 +1203,20 @@ abstract class AstNode {
         readonly string[] param_types;
         readonly string return_type;
         readonly bool is_ilf;
-        readonly bool is_static;
+        bool is_static;
 
-        public IlFunc(Location loc, string name, string il, string[] param_types, string rt, bool is_ilf, bool is_stc) : base(loc) {
-            this.name = name;
+        public IlFunc(Location loc, FuncDefHead func_def_head, string il, string[] param_types, bool is_ilf) : base(loc) {
+            name = func_def_head.name;
             this.il = il;
             this.param_types = param_types;
-            return_type = rt;
+            return_type = func_def_head.return_type;
             this.is_ilf = is_ilf;
-            is_static = is_stc;
+            is_static = func_def_head.is_static;
         }
 
         public override void CreateNameInfo(Scope scope) {
             string parent_class = ParentClassName();
+            if (parent_class == null) is_static = true;
             FuncInfo func_info;
             if (is_ilf) func_info = new FuncInfo.Ord(param_types, return_type, is_static, il, location, parent_class);
             else func_info = new FuncInfo.Il(param_types, return_type, il);

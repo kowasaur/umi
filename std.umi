@@ -4,7 +4,10 @@ il class Void "void" {}
 il class Int "int32" {}
 il class Bool "bool" {}
 il class Char "char" {}
-il class String "string" {}
+
+il class String "string" {
+    ilf Char get(Int) "get_Chars"
+}
 
 ilf Void print(String) "[mscorlib]System.Console::WriteLine"
 ilf Void print(Char) "[mscorlib]System.Console::WriteLine"
@@ -54,7 +57,7 @@ il Int &(Int, Int) "and"
 il Int |(Int, Int) "or"
 
 il class Console "[mscorlib]System.Console" {
-    static ilf Void write(String) "Write"
-    static ilf Void write(Int) "Write"
-    static ilf Void write(Char) "Write"
+    ilf static Void write(String) "Write"
+    ilf static Void write(Int) "Write"
+    ilf static Void write(Char) "Write"
 }
