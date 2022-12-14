@@ -1,0 +1,11 @@
+T identity[T](T thing) {
+    T temp = thing
+    temp
+}
+
+Void main() {
+    Int i = identity[Int](1)
+    Bool b = identity[Bool](true)
+    print(i)
+    print(b)
+}
