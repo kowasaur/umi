@@ -34,6 +34,8 @@ class Human : Animal {
     }
 }
 
+Void makeSpeak(Animal animal) { animal.speak() }
+
 Void main() {
     Animal a = Animal("alfred")
     a.speak()
@@ -46,6 +48,7 @@ Void main() {
     Dog dog = Dog("spot", 5)
     print(dog.toString())
     print(dog.age)
+    makeSpeak(dog)
 
     Animal joe = Human("Joe")
     joe.speak()

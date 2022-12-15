@@ -3,9 +3,28 @@ T identity[T](T thing) {
     temp
 }
 
+class Parent {
+    Parent() {}
+    Void talk() { print("Hello") }
+}
+
+class Child : Parent {
+    Child() {}
+    Void talk() { print("bazinga!") }
+}
+
+# I recognise that this example is stupid because the generic is completely unnecessary
+Void saySomething[T : Parent](T person) {
+    person.talk()
+}
+
+
 Void main() {
     Int i = identity[Int](1)
     Bool b = identity[Bool](true)
     print(i)
     print(b)
+
+    saySomething[Parent](Parent())
+    saySomething[Child](Child())
 }
