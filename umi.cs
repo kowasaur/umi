@@ -385,13 +385,14 @@ abstract class Grammar {
     static T[] MultiArray<T>(AstNode node) where T : AstNode => node == null ? new T[0] : ((AstNode.Multiple<T>)node).ToArray();
 
     static string ValueText(AstNode node) => ((AstNode.Value)node).content;
+    static string MaybeValueText(AstNode node) => node == null ? null : ValueText(node);
 
     static string[] IdentifierArray(AstNode multiple_identifiers) => Array.ConvertAll(
         MultiArray<AstNode.Identifier>(multiple_identifiers), v => v.content
     );
 
     static Name.Generic[] GenericsArray(AstNode node) {
-        return MultiArray<AstNode.Identifier>(node).Select((g, i) => new Name.Generic(g.location, g.content, i)).ToArray();
+        return MultiArray<AstNode.Generic>(node).Select((g, i) => new Name.Generic(g.location, g.name, i, g.constraint)).ToArray();
     }
     
     static readonly string[][] OPERATOR_PRECEDENCE = {
@@ -508,15 +509,21 @@ abstract class Grammar {
         });
         SUBEXPRESSION.possible_patterns[0][1] = EXPRESSION;
 
+        var INHERIT = new Pattern("INHERIT", new Grammar[] {COLON, IDENTIFIER}, (_, nodes) => nodes[1], optional: true);
+
+        var GENERIC = new Pattern("GENERIC", new Grammar[] {IDENTIFIER, INHERIT}, 
+            (_, nodes) => new AstNode.Generic((AstNode.Identifier)nodes[0], MaybeValueText(nodes[1]))
+        );
         var GENERICS = new Pattern("GENERICS", 
-            new Grammar[] {LSQUARE, Multiple<AstNode.Identifier>("GENERIC_LIST", new Grammar[] {IDENTIFIER, COMMA}), RSQUARE},
+            new Grammar[] {LSQUARE, Multiple<AstNode.Generic>("GENERIC_LIST", new Grammar[] {GENERIC, COMMA}), RSQUARE},
             (loc, nodes) => nodes[1], optional: true
         );
 
         var ARGUMENTS = Multiple<AstNode>("ARGUMENTS", new Grammar[] {EXPRESSION, COMMA}, optional: true);
-        var FUNC_CALL = new Pattern("FUNC_CALL", new Grammar[] {IDENTIFIER, GENERICS, LPARAN, ARGUMENTS, RPARAN}, 
-            (loc, nodes) => new AstNode.FuncCall(loc, ValueText(nodes[0]), MultiArray<AstNode>(nodes[3]), IdentifierArray(nodes[1]))
-        );
+        var FUNC_CALL = new Pattern("FUNC_CALL", new Grammar[] {IDENTIFIER, GENERICS, LPARAN, ARGUMENTS, RPARAN}, (loc, nodes) => {
+            string[] gens = Array.ConvertAll(MultiArray<AstNode.Generic>(nodes[1]), g => g.name);
+            return new AstNode.FuncCall(loc, ValueText(nodes[0]), MultiArray<AstNode>(nodes[3]), gens);
+        });
         TERM.possible_patterns[4][0] = FUNC_CALL;
 
         var VAR_ASSIGN = new Pattern("VAR_ASSIGN", new Grammar[] {EXPRESSION, EQUAL, EXPRESSION}, (loc, nodes) => {
@@ -602,15 +609,12 @@ abstract class Grammar {
         var FIELD = new Pattern("FIELD", new Grammar[] {STATIC, MUT, IDENTIFIER, IDENTIFIER}, 
             (loc, nodes) => new AstNode.Field(loc, ValueText(nodes[2]), ValueText(nodes[3]), nodes[1] != null, nodes[0] != null)
         );
-        
-        var INHERIT = new Pattern("INHERIT", new Grammar[] {COLON, IDENTIFIER}, (loc, nodes) => nodes[1], optional: true);
 
         var CLASS_STMTS = NewStatements("CLASS_STMTS", new Grammar[] {FUNC_DEF, FIELD});
         var CLASS_BLOCK = NewBlock("CLASS_BLOCK", CLASS_STMTS);
-        var CLASS_DEF = new Pattern("CLASS_DEF", new Grammar[] {CLASS, IDENTIFIER, INHERIT, CLASS_BLOCK}, (loc, nodes) => {
-            string base_class = nodes[2] != null ? ValueText(nodes[2]) : null;
-            return new AstNode.Class(loc, ValueText(nodes[1]), (AstNode.Statements)nodes[3], base_class);
-        });
+        var CLASS_DEF = new Pattern("CLASS_DEF", new Grammar[] {CLASS, IDENTIFIER, INHERIT, CLASS_BLOCK}, 
+            (loc, nodes) => new AstNode.Class(loc, ValueText(nodes[1]), (AstNode.Statements)nodes[3], MaybeValueText(nodes[2]))
+        );
 
         var IL_CLASS_STMTS = NewStatements("IL_CLASS_STMTS", new Grammar[] {IL_FUNC});
         var IL_CLASS_BLOCK = NewBlock("IL_CLASS_BLOCK", IL_CLASS_STMTS);
@@ -747,6 +751,16 @@ abstract class AstNode {
             Name result = scope.LookUp(content, location);
             // The if is for static methods
             if (result is Name.Varish) ((Name.Varish)result).GenLoadIl(scope, this);
+        }
+    }
+
+    public class Generic : AstNode {
+        public readonly string name;
+        public readonly string constraint;
+
+        public Generic(AstNode.Identifier name, string constraint): base(name.location) {
+            this.name = name.content;
+            this.constraint = constraint;
         }
     }
 
@@ -1427,24 +1441,24 @@ abstract class Name {
     public class Generic : Name {
         public readonly string name;
         public readonly string il_name;
+        public readonly string base_class;
 
-        public Generic(Location loc, string name, string il_name) : base(loc) {
+        public Generic(Location loc, string name, string il_name, string base_class) : base(loc) {
             this.name = name;
             this.il_name = il_name;
+            this.base_class = base_class;
         }
 
-        public Generic(Location loc, string name, int index) : this(loc, name, $"!!{index}") {}
+        public Generic(Location loc, string name, int index, string constraint) : this(loc, name, $"!!{index}", constraint) {}
     }
 
     public class Class : Generic {
-        public readonly string base_class;
         public readonly Func constructor;
         public readonly Scope members;
 
-        public Class(Location loc, string name, Scope members, string il_name, string base_class) : base(loc, name, il_name) {
+        public Class(Location loc, string name, Scope members, string il_name, string base_class) : base(loc, name, il_name, base_class) {
             this.members = members;
             constructor = new Func(loc);
-            this.base_class = base_class;
         }
 
         public Name GetMember(string child, Location location) {
@@ -1466,6 +1480,8 @@ abstract class Name {
         // Returns null if nothing matches
         public FuncInfo BestFit(string[] types, string[] gen_types) {
             foreach (var func_info in functions) {
+                if (gen_types.Length != func_info.generics.Length) continue;
+
                 string[] correct_types = new string[types.Length];
                 types.CopyTo(correct_types, 0);
                 
