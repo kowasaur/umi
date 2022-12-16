@@ -5,6 +5,9 @@
         { "include": "#comments" },
         { "include": "#keywords" },
         { "include": "#booleans" },
+        { "include": "#classes" },
+        { "include": "#functions" },
+        { "include": "#variables" },
         { "include": "#strings" },
         { "include": "#characters" },
         { "include": "#numbers" },
@@ -19,11 +22,43 @@
                     "name": "keyword.control",
                     "match": "\\b(if|else|while|return|break|continue|include)\\b"
                 },
-                { "name": "storage.type", "match": "\\b(class|alias)\\b" },
+                { "name": "storage.type", "match": "\\b(alias)\\b" },
                 { "name": "storage.modifier", "match": "\\b(mut|static)\\b" }
             ]
         },
         "booleans": { "name": "constant.language.boolean", "match": "\\b(true|false)\\b" },
+        "classes": {
+            "name": "meta.class.identifier",
+            "match": "(class) +([_[:alpha:]][_\\w]*)",
+            "captures": {
+                "1": { "name": "storage.type" },
+                "2": { "name": "entity.name.class" }
+            }
+        },
+        "functions": {
+            "patterns": [
+                {
+                    "match": "([_[:alpha:]][_\\w]*) +([_[:alpha:]][_\\w]*\\()",
+                    "captures": {
+                        "1": { "name": "entity.name.class" },
+                        "2": { "name": "entity.name.function" }
+                    }
+                },
+                { "match": "[_[:alpha:]][_\\w]*\\(", "name": "entity.name.function" }
+            ]
+        },
+        "variables": {
+            "patterns": [
+                {
+                    "match": "([_[:alpha:]][_\\w]*) +([_[:alpha:]][_\\w]*)",
+                    "captures": {
+                        "1": { "name": "entity.name.class" },
+                        "2": { "name": "variable" }
+                    }
+                },
+                { "match": "[_[:alpha:]][_\\w]*", "name": "variable" }
+            ]
+        },
         "strings": {
             "name": "string.quoted.double",
             "begin": "\"",
