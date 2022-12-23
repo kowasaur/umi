@@ -387,8 +387,8 @@ abstract class Grammar {
     static string ValueText(AstNode node) => ((AstNode.Value)node).content;
     static string MaybeValueText(AstNode node) => node == null ? null : ValueText(node);
 
-    static Name.Generic[] GenericsArray(AstNode node) {
-        return MultiArray<AstNode.Generic>(node).Select((g, i) => new Name.Generic(g.location, g.name, i, g.constraint)).ToArray();
+    static Name.Generic[] GenericsArray(AstNode node, bool is_func = false) {
+        return MultiArray<AstNode.Generic>(node).Select((g, i) => new Name.Generic(g.location, g.name, i, g.constraint, is_func)).ToArray();
     }
 
     static string[] GenericTypesArray(AstNode node) => Array.ConvertAll(MultiArray<AstNode.Generic>(node), g => g.name);
@@ -581,7 +581,7 @@ abstract class Grammar {
 
         var FUNC_DEF_HEAD = new Pattern("FUNC_DEF_HEAD", new Grammar[] {STATIC, TYPE, FUNC_IDEN, GENERICS}, (loc, nodes) => {
             Type return_type = TypeNodeType(nodes[1]);
-            Name.Generic[] gens = GenericsArray(nodes[3]);
+            Name.Generic[] gens = GenericsArray(nodes[3], true);
             // constructors have only type not name
             string name = nodes[2] == null ? return_type.name : ValueText(nodes[2]);
             return new AstNode.FuncDefHead(loc, name, return_type, gens, nodes[0] != null);
@@ -617,7 +617,7 @@ abstract class Grammar {
 
         var CLASS_STMTS = NewStatements("CLASS_STMTS", new Grammar[] {FUNC_DEF, FIELD});
         var CLASS_BLOCK = NewBlock("CLASS_BLOCK", CLASS_STMTS);
-        var CLASS_DEF = new Pattern("CLASS_DEF", new Grammar[] {CLASS, IDENTIFIER, GENERICS, INHERIT, CLASS_BLOCK}, 
+        var CLASS_DEF = new Pattern("CLASS_DEF", new Grammar[] {CLASS, IDENTIFIER, GENERICS, INHERIT, CLASS_BLOCK},
             (loc, nodes) => new AstNode.Class(loc, ValueText(nodes[1]), (AstNode.Statements)nodes[4], MaybeValueText(nodes[3]), GenericsArray(nodes[2]))
         );
 
@@ -843,9 +843,7 @@ abstract class AstNode {
 
         public override Type GetType(Scope scope) {
             FuncInfo func_info = GetFuncInfo(scope);  
-            int i = Array.FindIndex(func_info.generics, g => g.name == func_info.return_type.name);
-            if (i == -1) return func_info.return_type;
-            return generics[i];
+            return func_info.return_type.RealType(func_info.generics, generics);
         }
 
         protected override void SetParent(AstNode parent) {
@@ -858,14 +856,21 @@ abstract class AstNode {
 
             // If calling a method without `this`
             if (!is_method_call && func_info is FuncInfo.Ord) {
-                var fi = (FuncInfo.Ord)func_info;
-                if (fi.parent_class != null && !fi.IsConstructor()) Output.WriteLine("ldarg 0");
+                if (func_info.parent_class != null && !func_info.IsConstructor()) {
+                    Output.WriteLine("ldarg 0");
+                }
             } else if (func_info is FuncInfo.Base) {
                 Output.WriteLine("ldarg 0");
             }
 
+            Type parent_instance = new Type(func_info.parent_class);
+
+            if (func_info.IsConstructor()) {
+                parent_instance = new Type(func_info.parent_class, Array.ConvertAll(generics, g => g.name));
+            }
+
             foreach (var arg in arguments) arg.GenIl(scope);
-            func_info.GenIl(scope, generics);
+            func_info.GenIl(scope, generics, parent_instance);
         }
     }
     
@@ -931,14 +936,15 @@ abstract class AstNode {
         }
 
         public override void GenIl(Scope scope) {
-            Name.Field field = dot.GetField(scope);
+            Name.Class cls = dot.GetClass(scope);
+            Name.Field field = dot.GetField(cls, scope);
 
-            value.ExpectType(field.type, scope);
+            value.ExpectType(dot.GetType(scope), scope);
             field.CheckCanAssign(this);
 
             dot.parent.GenIl(scope);
             value.GenIl(scope);
-            field.GenStoreIl(scope, location);
+            field.GenStoreIl(cls.members, location, dot.parent.GetType(scope));
         }
     }
     
@@ -1138,6 +1144,7 @@ abstract class AstNode {
         if (name == return_type.name) { // Add constructor to the class
             if (!is_static) { // Ignore static constructors
                 var c = (Name.Class)scope.LookUp(parent_class, location);
+                func_info.generics = c.generics;
                 c.constructor.functions.Add(func_info);
             }
         } else { // Add the function to the scope
@@ -1251,7 +1258,7 @@ abstract class AstNode {
 
             FuncInfo func_info;
             if (is_ilf) func_info = new FuncInfo.Ord(param_types, head.return_type, is_static, il, location, parent_class, head.generics, scope);
-            else func_info = new FuncInfo.Il(param_types, head.return_type, il, head.generics);
+            else func_info = new FuncInfo.Il(param_types, head.return_type, il, head.generics, parent_class);
             AddToScope(scope, parent_class, func_info, head.name, head.return_type, is_static);
         }
 
@@ -1281,9 +1288,16 @@ abstract class AstNode {
             this.child = child;
         }
 
-        public Name.Field GetField(Scope scope) => (Name.Field)scope.GetClass(parent, location).GetMember(child, location, scope);
+        public Name.Class GetClass(Scope scope) => (Name.Class)scope.GetClass(parent, location);
+
+        public Name.Field GetField(Name.Class cls, Scope scope) => (Name.Field)cls.GetMember(child, location, scope);
         
-        public override Type GetType(Scope scope) => GetField(scope).type;
+        public override Type GetType(Scope scope) {
+            Type parent_instance = parent.GetType(scope);
+            var parent_class = (Name.Class)scope.LookUpType(parent_instance.name, location);
+            var field = (Name.Field)parent_class.GetMember(child, location, scope);
+            return field.type.RealType(parent_class.generics, Array.ConvertAll(parent_instance.generics, g => new Type(g)));
+        }
 
         protected override void SetParent(AstNode node_parent) {
             base.SetParent(node_parent);
@@ -1291,8 +1305,9 @@ abstract class AstNode {
         }
 
         public override void GenIl(Scope scope) {
+            Name.Class cls = GetClass(scope);
             parent.GenIl(scope);
-            GetField(scope).GenLoadIl(scope, location);
+            GetField(cls, scope).GenLoadIl(cls.members, location, parent.GetType(scope));
         }
     }
 
@@ -1314,13 +1329,13 @@ abstract class AstNode {
         }
 
         public override void GenIl(Scope scope) {
-            Output.WriteLine($".field {(is_static ? "static" : "")} {scope.GetIlType(type, location)} {name}\n");
+            Output.WriteLine($".field{(is_static ? " static" : "")} {scope.GetIlType(type, location)} {name}\n");
         }
     }
 
     public class IlClass : AstNode {
         public readonly string name;
-        readonly Name.Generic[] generics;
+        protected readonly Name.Generic[] generics;
         readonly string il_name;
         protected string base_class;
         protected readonly Statements statements;
@@ -1341,8 +1356,9 @@ abstract class AstNode {
 
         public override void CreateNameInfo(Scope scope) {
             class_scope = new Scope(scope);
-            scope.Add(name, new Name.Class(location, name, class_scope, il_name, base_class));
+            scope.Add(name, new Name.Class(location, name, class_scope, il_name, base_class, generics));
 
+            foreach (var gen in generics) class_scope.Add(gen.name, gen);
             foreach (AstNode stmt in statements.statements) stmt.CreateNameInfo(class_scope);
 
             // Copy the scope of the base class into this class
@@ -1366,16 +1382,22 @@ abstract class AstNode {
 
     public class Class : IlClass {
         public Class(Location loc, string name, Statements statements, string bas, Name.Generic[] generics) 
-            : base(loc, name, name, statements, bas, generics) {}
+            : base(loc, name, ilName(name, generics), statements, bas, generics) {}
 
         public override void GenIl(Scope scope) {
             string extends = base_class == null ? "" : $" extends {base_class}";
-            Output.WriteLine($".class {name}{extends}");
+            Output.WriteLine($".class {name}{Name.Generic.GenericsString(generics)}{extends}");
             Output.WriteLine("{");
             Output.Indent();
             statements.GenIl(class_scope);
             Output.Unindent();
             Output.WriteLine("}\n");
+        }
+
+        static string ilName(string name, Name.Generic[] generics) {
+            if (generics.Length == 0) return name;
+            var gens = string.Join(", ", Enumerable.Range(0, generics.Length).Select(n => $"{{{n}}}"));
+            return $"class {name}<{gens}>";
         }
     }
 
@@ -1419,6 +1441,17 @@ class Type {
 
     public Type(string name) : this(name, new string[0]) {}
 
+    // `this` is the type used in the generic class/function
+    // `generic_params` is in the definition of the generic class/function
+    // `generic_args` is what is supplied to the generic class/function
+    public Type RealType(Name.Generic[] generic_params, Type[] generic_args) {
+        int i = Array.FindIndex(generic_params, g => g.name == name);
+        Type result = i == -1 ? this : generic_args[i];
+        // ?  I think this might suck
+        var gens = Array.ConvertAll(result.generics, g => new Type(g).RealType(generic_params, generic_args).name);
+        return new Type(result.name, gens);
+    }
+
     public static bool operator ==(Type a, string b) => a.name == b;
     public static bool operator !=(Type a, string b) => a.name != b;
     public static bool operator ==(Type a, Type b) => a.name == b.name && Enumerable.SequenceEqual(a.generics, b.generics);
@@ -1434,9 +1467,9 @@ class Type {
         if (!(obj is Type)) throw new NotImplementedException("Equality doesn't exist for non `Type`s");
         return this == (Type)obj;
     }
+
     public override int GetHashCode() => throw new NotImplementedException("Don't call GetHashCode on Type");
     
-
     public static Type VOID = new Type("Void");
     public static Type STRING = new Type("String");
     public static Type INT = new Type("Int");
@@ -1498,21 +1531,31 @@ abstract class Name {
             this.base_class = base_class;
         }
 
-        public Generic(Location loc, string name, int index, string constraint) : this(loc, name, $"!!{index}", constraint) {}
+        public Generic(Location loc, string name, int index, string constraint, bool func) 
+        : this(loc, name, genericIlName(index, func), constraint) {}
 
         public virtual Name GetMember(string child, Location location, Scope scope) {
             if (base_class == null) Umi.Crash($"Generic parameter of type `{name}` with no constraints has no members", location);
             return scope.LookUpType(base_class, location).GetMember(child, location, scope);
         }
+
+        public static string GenericsString(Generic[] generics) {
+            return generics.Length == 0 ? "" : $"<{string.Join(',', generics.Select(g => g.name))}>";
+        }
+
+        static string genericIlName(int index, bool is_func) => is_func ? $"!!{index}" : $"!{index}";
     }
 
     public class Class : Generic {
         public readonly Func constructor;
         public readonly Scope members;
+        public readonly Name.Generic[] generics;
 
-        public Class(Location loc, string name, Scope members, string il_name, string base_class) : base(loc, name, il_name, base_class) {
+        public Class(Location loc, string name, Scope members, string il_name, string base_class, Name.Generic[] generics) 
+        : base(loc, name, il_name, base_class) {
             this.members = members;
             constructor = new Func(loc);
+            this.generics = generics;
         }
 
         public override Name GetMember(string child, Location location, Scope _) {
@@ -1636,25 +1679,27 @@ abstract class Name {
 
         public override Type GetType(Scope _) => type;
 
-        void GenInstructionIl(Scope scope, Location loc, string instruction) {
-            Output.WriteLine($"{instruction} {scope.GetIlType(type, loc)} {parent_class}::{name}");
+        void GenInstructionIl(Scope scope, Location loc, string instruction, Type parent) {
+            Output.WriteLine($"{instruction} {scope.GetIlType(type, loc)} {scope.GetIlType(parent, loc)}::{name}");
         }
 
-        public void GenLoadIl(Scope scope, Location loc) => GenInstructionIl(scope, loc, is_static ? "ldsfld" : "ldfld");
+        public void GenLoadIl(Scope scope, Location loc, Type parent) => GenInstructionIl(scope, loc, is_static ? "ldsfld" : "ldfld", parent);
         
-        public void GenStoreIl(Scope scope, Location loc) => GenInstructionIl(scope, loc, is_static ? "stsfld" : "stfld");
+        public void GenStoreIl(Scope scope, Location loc, Type parent) => GenInstructionIl(scope, loc, is_static ? "stsfld" : "stfld", parent);
+
+        // TODO: ensure these (below) work with generics
 
         public override void GenStoreIl(Scope scope, Location loc, AstNode value) {
             // `this`. This function should only be called when treated like normal var assign
             if (!is_static) Output.WriteLine("ldarg 0");
             base.GenStoreIl(scope, loc, value);
-            GenStoreIl(scope, loc);
+            GenStoreIl(scope, loc, new Type(parent_class));
         }
 
         // This should only be called when the field is used without `this` in its class
         public override void GenLoadIl(Scope scope, AstNode.Identifier context) {
             if (!is_static) Output.WriteLine("ldarg 0");
-            GenLoadIl(scope, context.location);
+            GenLoadIl(scope, context.location, new Type(parent_class));
         }
     }
 
@@ -1663,30 +1708,31 @@ abstract class Name {
 abstract class FuncInfo {
     public readonly Type[] param_types;
     public readonly Type return_type;
-    public readonly Name.Generic[] generics;
+    public readonly string parent_class;
+    public Name.Generic[] generics; // can be modified because constructors
     
-    public FuncInfo(Type[] param_types, Type return_type, Name.Generic[] generics) {
+    public FuncInfo(Type[] param_types, Type return_type, Name.Generic[] generics, string parent_class) {
         this.param_types = param_types;
         this.return_type = return_type;
         this.generics = generics;
+        this.parent_class = parent_class;
     }
 
-    public abstract void GenIl(Scope scope, Type[] gens);
+    public abstract void GenIl(Scope scope, Type[] gens, Type parent_instance);
+    public virtual bool IsConstructor() => false;
 
     // Ordinary function
     public class Ord : FuncInfo {
         readonly bool is_static;
         readonly string il_name;
-        public readonly string parent_class;
         readonly Location defined_at;
         readonly Scope scope;
 
         public Ord(Type[] paras, Type rtype, bool is_static, string name, Location loc, string pclass, Name.Generic[] gens, Scope scope)
-        : base(paras, rtype, gens) {
+        : base(paras, rtype, gens, pclass) {
             this.is_static = is_static;
             defined_at = loc;
             il_name = name;
-            parent_class = pclass;
             this.scope = scope;
         }
 
@@ -1702,7 +1748,7 @@ abstract class FuncInfo {
             return $"'{name}'";
         }
 
-        public bool IsConstructor() => il_name == ".ctor" || il_name == ".cctor";
+        public override bool IsConstructor() => il_name == ".ctor" || il_name == ".cctor";
 
         // `gens` is the passed in generics whereas `generics` is the type parameters 
         public string IlSignature(Type[] gens = null, string prefix = "") {
@@ -1716,18 +1762,17 @@ abstract class FuncInfo {
             }
             string para_types = scope.ParameterTypesString(pts, defined_at);
 
-            string generic = "";
-            if (gens == null && generics.Length > 0) generic = $"<{string.Join(',', generics.Select(g => g.name))}>";
-            else if (gens != null && gens.Length > 0) generic = $"<{scope.ParameterTypesString(gens, defined_at)}>";
+            string generic = Name.Generic.GenericsString(generics);
+            if (gens != null && gens.Length > 0) generic = $"<{scope.ParameterTypesString(gens, defined_at)}>";
 
             return $"{rt} {prefix}{il_name}{generic}({para_types})";
         }
 
-        public override void GenIl(Scope _, Type[] gens) {
+        public override void GenIl(Scope _, Type[] gens, Type parent_instance) {
             string call_word = is_static ? "call" : "callvirt";
             if (IsConstructor()) call_word = "newobj";
             
-            string prefix = parent_class == null ? "" : scope.GetIlType(parent_class, defined_at) + "::";
+            string prefix = parent_class == null ? "" : scope.GetIlType(parent_instance, defined_at) + "::";
             Output.WriteLine($"{call_word} {IlSignature(gens, prefix)}");
         }
     }
@@ -1736,14 +1781,12 @@ abstract class FuncInfo {
     // Calling the base constructor within a constructor
     public class Base : FuncInfo {
         readonly Location defined_at;
-        readonly string parent_class;
 
-        public Base(Type[] ptypes, string parent_class, Location loc): base(ptypes, Type.VOID, new Name.Generic[0]) {
+        public Base(Type[] ptypes, string parent_class, Location loc): base(ptypes, Type.VOID, new Name.Generic[0], parent_class) {
             defined_at = loc;
-            this.parent_class = parent_class;
         }
 
-        public override void GenIl(Scope scope, Type[] _) {
+        public override void GenIl(Scope scope, Type[] _, Type __) {
             string paras = scope.ParameterTypesString(param_types, defined_at);
             Output.WriteLine($"call instance void {parent_class}::.ctor({paras})");
         }
@@ -1751,9 +1794,11 @@ abstract class FuncInfo {
 
     public class Il : FuncInfo {
         readonly string il;
-        public Il(Type[] ptypes, Type rtype, string il, Name.Generic[] gens) : base(ptypes, rtype, gens) => this.il = il;
+
+        public Il(Type[] ptypes, Type rtype, string il, Name.Generic[] gens, string parent_class)
+        : base(ptypes, rtype, gens, parent_class) => this.il = il;
         
-        public override void GenIl(Scope _, Type[] __) => Output.WriteLine(il);
+        public override void GenIl(Scope _, Type[] __, Type ___) => Output.WriteLine(il);
     }
 }
 
@@ -1780,14 +1825,11 @@ class Scope {
         return LookUpType(parent.GetType(this).name, location);
     }
 
-    public string GetIlType(string type, Location location) => LookUpType(type, location).il_name;
+    string GetIlType(string type, Location location) => LookUpType(type, location).il_name;
 
     public string GetIlType(Type type, Location location) {
-        string name = GetIlType(type.name, location);
-        if (type.generics.Length > 0) {
-            name += $"<{string.Join(", ", Array.ConvertAll(type.generics, g => GetIlType(g, location)))}>";
-        }
-        return name;
+        string[] generics = Array.ConvertAll(type.generics, g => GetIlType(g, location));
+        return string.Format(GetIlType(type.name, location), generics);
     }
     
     public string ParameterTypesString(Type[] param_types, Location location) {

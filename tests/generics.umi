@@ -1,8 +1,3 @@
-T identity[T](T thing) {
-    T temp = thing
-    temp
-}
-
 class Parent {
     Parent() {}
     Void talk() { print("Hello") }
@@ -11,6 +6,18 @@ class Parent {
 class Child : Parent {
     Child() {}
     Void talk() { print("bazinga!") }
+}
+
+class Pair[T, U] {
+    mut T first
+    mut U second
+
+    Pair[T, U]() {}
+}
+
+T identity[T](T thing) {
+    T temp = thing
+    temp
 }
 
 # I recognise that this example is stupid because the generic is completely unnecessary
@@ -27,4 +34,9 @@ Void main() {
 
     saySomething[Parent](Parent())
     saySomething[Child](Child())
+
+    Pair[Int, Int] int_int = Pair[Int, Int]()
+    int_int.first = 2
+    int_int.second = 3
+    print(int_int.first + int_int.second)
 }
