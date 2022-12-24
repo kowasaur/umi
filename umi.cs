@@ -829,9 +829,13 @@ abstract class AstNode {
                 return null;
             }
 
+            Type parent_instance = null;
             Type[] arg_types = Array.ConvertAll(arguments, arg => arg.GetType(scope));
-            if (is_method_call) arg_types = arg_types.Skip(1).ToArray(); // the class itself
-            FuncInfo func_info = func.BestFit(arg_types, generics, scope, location);
+            if (is_method_call) {
+                arg_types = arg_types.Skip(1).ToArray(); // the class itself
+                parent_instance = getParentInstance(scope);
+            }
+            FuncInfo func_info = func.BestFit(arg_types, generics, scope, location, parent_instance);
 
             if (func_info == null) {
                 string types = string.Join<Type>("`, `", arg_types);
@@ -1037,7 +1041,7 @@ abstract class AstNode {
         }
 
         public override void GenIl(Scope scope) {
-            if (GetType(scope) != "Void") Umi.Crash("else block is necessary when if statement is used as value", location);
+            if (GetType(scope) != Type.VOID) Umi.Crash("else block is necessary when if statement is used as value", location);
             Output.WriteLabel(IfIl(scope));
         }
     }
@@ -1242,7 +1246,7 @@ abstract class AstNode {
                 Output.WriteLine(")");
             }
             
-            statements.ExpectType(return_type == name ? Type.VOID : return_type, block_scope);
+            statements.ExpectType(return_type.name == name ? Type.VOID : return_type, block_scope);
             GenStatements();
             Output.WriteLine("ret");
             Output.Unindent();
@@ -1470,8 +1474,6 @@ class Type {
         return RealType(parent_class.generics, Array.ConvertAll(parent_instance.generics, g => new Type(g)));
     }
 
-    public static bool operator ==(Type a, string b) => a.name == b;
-    public static bool operator !=(Type a, string b) => a.name != b;
     public static bool operator ==(Type a, Type b) => a.name == b.name && Enumerable.SequenceEqual(a.generics, b.generics);
     public static bool operator !=(Type a, Type b) => !(a == b);
 
@@ -1596,13 +1598,13 @@ abstract class Name {
         // This function is currently a misnomer
         // It returns the *first* FuncInfo that matches
         // Returns null if nothing matches
-        public FuncInfo BestFit(Type[] types, Type[] gen_types, Scope scope, Location loc) {
+        public FuncInfo BestFit(Type[] types, Type[] gen_types, Scope scope, Location loc, Type parent_instance) {
             foreach (var func_info in functions) {
                 if (func_info.param_types.Length != types.Length) continue;
                 if (gen_types.Length != func_info.generics.Length) continue;
 
-                Type[] correct_types = new Type[types.Length];
-                types.CopyTo(correct_types, 0);
+                Type[] correct_types = new Type[func_info.param_types.Length];
+                func_info.param_types.CopyTo(correct_types, 0);
                 
                 for (int g = 0; g < func_info.generics.Length; g++) {
                     Generic gen = func_info.generics[g];
@@ -1610,11 +1612,24 @@ abstract class Name {
                     if (gen.base_class != null && !scope.TypesMatch(new Type(gen.base_class), gen_types[g], loc)) break;
 
                     for (int t = 0; t < types.Length; t++) {
-                        if (scope.TypesMatch(gen_types[g], types[t], loc)) correct_types[t] = new Type(gen.name);
+                        if (gen.name == func_info.param_types[t].name) correct_types[t] = gen_types[g];
                     }
                 }
 
-                if (func_info.param_types.Zip(correct_types, (pt, ct) => scope.TypesMatch(pt, ct, loc)).All(b => b)) return func_info;
+                // Class Generics
+                if (!object.ReferenceEquals(parent_instance, null)) {
+                    var parent_class = scope.LookUpType(parent_instance.name, loc) as Name.Class;
+                    if (parent_class != null) {
+                        for (int g = 0; g < parent_class.generics.Length; g++) {
+                            Generic gen = parent_class.generics[g];
+                            for (int t = 0; t < types.Length; t++) {
+                                if (gen.name == func_info.param_types[t].name) correct_types[t] = new Type(parent_instance.generics[g]);
+                            }
+                        }
+                    }
+                }
+
+                if (types.Zip(correct_types, (t, ct) => scope.TypesMatch(ct, t, loc)).All(b => b)) return func_info;
             }
             return null;
         }
@@ -1763,8 +1778,8 @@ abstract class FuncInfo {
         static string IlName(string name, Type return_type, AstNode.Param[] parameters, bool is_static) {
             if (name == return_type.name) return is_static ? ".cctor" : ".ctor"; // constructor   
             if (parameters.Length == 2) { // unary operator
-                if (parameters[0].type == "Void") return $"'PREFIX{name}'";
-                if (parameters[1].type == "Void") return $"'POSTFIX{name}'";
+                if (parameters[0].type == Type.VOID) return $"'PREFIX{name}'";
+                if (parameters[1].type == Type.VOID) return $"'POSTFIX{name}'";
             }
             return $"'{name}'";
         }
