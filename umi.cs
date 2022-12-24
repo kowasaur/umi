@@ -1341,7 +1341,8 @@ abstract class AstNode {
         }
 
         public override void CreateNameInfo(Scope scope) {
-            scope.Add(name, new Name.Field(location, type, name, ParentClassName(), is_mutable, is_static));
+            var cls = (AstNode.IlClass)node_parent;
+            scope.Add(name, new Name.Field(location, type, name, new Type(cls.name, cls.generics), is_mutable, is_static));
         }
 
         public override void GenIl(Scope scope) {
@@ -1695,10 +1696,10 @@ abstract class Name {
         public readonly Type type;
         public readonly bool is_mutable;
         readonly string name;
-        readonly string parent_class;
+        readonly Type parent_class; // only use the generics when used without `this`
         readonly bool is_static;
 
-        public Field(Location defined_at, Type type, string name, string pc, bool mutable, bool stati) : base(defined_at) {
+        public Field(Location defined_at, Type type, string name, Type pc, bool mutable, bool stati) : base(defined_at) {
             this.type = type;
             this.name = name;
             this.parent_class = pc;
@@ -1709,7 +1710,7 @@ abstract class Name {
         public override void CheckCanAssign(AstNode assignment) {
             if (is_mutable) return;
             FuncInfo.Ord func_info = assignment.GetAncestorOfType<AstNode.FuncDef>().func_info;
-            if (func_info.IsConstructor() && func_info.parent_class == parent_class) return;
+            if (func_info.IsConstructor() && func_info.parent_class == parent_class.name) return;
             Umi.Crash($"Cannot reassign immutable member `{parent_class}.{name}` outside of constructor", assignment.location);
         }
 
@@ -1723,19 +1724,17 @@ abstract class Name {
         
         public void GenStoreIl(Scope scope, Location loc, Type parent) => GenInstructionIl(scope, loc, is_static ? "stsfld" : "stfld", parent);
 
-        // TODO: ensure these (below) work with generics
-
         public override void GenStoreIl(Scope scope, Location loc, AstNode value) {
             // `this`. This function should only be called when treated like normal var assign
             if (!is_static) Output.WriteLine("ldarg 0");
             base.GenStoreIl(scope, loc, value);
-            GenStoreIl(scope, loc, new Type(parent_class));
+            GenStoreIl(scope, loc, parent_class);
         }
 
         // This should only be called when the field is used without `this` in its class
         public override void GenLoadIl(Scope scope, AstNode.Identifier context) {
             if (!is_static) Output.WriteLine("ldarg 0");
-            GenLoadIl(scope, context.location, new Type(parent_class));
+            GenLoadIl(scope, context.location, parent_class);
         }
     }
 

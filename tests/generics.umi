@@ -9,14 +9,14 @@ class Child : Parent {
 }
 
 class Pair[T, U] {
-    mut T first
+    T first
     mut U second
 
-    Pair[T, U]() {}
+    Pair[T, U](T first) { this.first = first }
 
-    T getFirst() { this.first }
+    T getFirst() { first }
 
-    Void setSecond(U new_second) { this.second = new_second }   
+    Void setSecond(U new_second) { second = new_second }   
 }
 
 T identity[T](T thing) {
@@ -29,7 +29,6 @@ Void saySomething[T : Parent](T person) {
     person.talk()
 }
 
-
 Void main() {
     Int i = identity[Int](1)
     Bool b = identity[Bool](true)
@@ -39,13 +38,11 @@ Void main() {
     saySomething[Parent](Parent())
     saySomething[Child](Child())
 
-    Pair[Int, Int] int_int = Pair[Int, Int]()
-    int_int.first = 2
+    Pair[Int, Int] int_int = Pair[Int, Int](2)
     int_int.second = 3
     print(int_int.getFirst() + int_int.second)
 
-    Pair[String, Bool] string_bool = Pair[String, Bool]()
-    string_bool.first = "banana"
+    Pair[String, Bool] string_bool = Pair[String, Bool]("banana")
     string_bool.setSecond(true)
     print(string_bool.first)
     print(string_bool.second)
