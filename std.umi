@@ -9,6 +9,19 @@ il class String "string" {
     ilf Char get(Int) "get_Chars"
 }
 
+il class Array[T] "{0}[]" {
+    il Array[T](Int) "newarr {0}"
+    il Void set(Int, T) "stelem {0}"
+    il T get(Int) "ldelem {0}"
+    il Int len() "ldlen"
+}
+
+il class Console "[mscorlib]System.Console" {
+    ilf static Void write(String) "Write"
+    ilf static Void write(Int) "Write"
+    ilf static Void write(Char) "Write"
+}
+
 ilf Void print(String) "[mscorlib]System.Console::WriteLine"
 ilf Void print(Char) "[mscorlib]System.Console::WriteLine"
 ilf Void print(Int) "[mscorlib]System.Console::WriteLine"
@@ -55,9 +68,3 @@ il Int <<(Int, Int) "shl"
 il Int >>(Int, Int) "shr"
 il Int &(Int, Int) "and"
 il Int |(Int, Int) "or"
-
-il class Console "[mscorlib]System.Console" {
-    ilf static Void write(String) "Write"
-    ilf static Void write(Int) "Write"
-    ilf static Void write(Char) "Write"
-}

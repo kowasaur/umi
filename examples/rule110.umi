@@ -1,15 +1,9 @@
-il class IntArray "int32[]" {
-    il IntArray(Int) "newarr int32"
-    il Void set(Int, Int) "stelem int32"
-    il Int get(Int) "ldelem int32"
-}
-
 alias RULE = 110
 alias SIZE = 60
 
 Int useRule(Int p) { RULE & (1 << p) >> p }
 
-Void printState(IntArray state) {
+Void printState(Array[Int] state) {
     mut Int i = 0
     while i < SIZE {
         if state.get(i) == 1 { Console.write('*') }
@@ -19,9 +13,9 @@ Void printState(IntArray state) {
     Console.write('\n')
 }
 
-IntArray nextState(IntArray state) {
+Array[Int] nextState(Array[Int] state) {
     mut Int i = 1
-    IntArray new_state = IntArray(SIZE)
+    Array[Int] new_state = Array[Int](SIZE)
     while i < SIZE - 1 {
         Int pattern = (state.get(i - 1) << 2) | (state.get(i) << 1) | state.get(i + 1)
         new_state.set(i, useRule(pattern))
@@ -32,7 +26,7 @@ IntArray nextState(IntArray state) {
 }
 
 Void main() {
-    mut IntArray state = IntArray(SIZE)
+    mut Array[Int] state = Array[Int](SIZE)
     state.set(SIZE - 1, 1)
 
     mut Int i = 0

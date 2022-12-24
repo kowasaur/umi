@@ -25,6 +25,7 @@ Note that the .expected files are the expected output of the corresponding .umi 
 -   Classes
     -   All methods are virtual by default
     -   Inheritance
+-   Generics
 -   Immutability by default
     -   Immutable references like `final` in Java
     -   Make variables mutable with `mut` keyword
@@ -34,7 +35,6 @@ Note that the .expected files are the expected output of the corresponding .umi 
 
 -   Aliases within local scopes
 -   Macros or inline functions
--   Generics
 -   `for` `in` loop
 -   Creating range array with `...`
     -   E.g. `0...10`
