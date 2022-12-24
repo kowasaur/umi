@@ -13,6 +13,8 @@ class Pair[T, U] {
     mut U second
 
     Pair[T, U]() {}
+
+    T getFirst() { this.first }
 }
 
 T identity[T](T thing) {
@@ -38,5 +40,5 @@ Void main() {
     Pair[Int, Int] int_int = Pair[Int, Int]()
     int_int.first = 2
     int_int.second = 3
-    print(int_int.first + int_int.second)
+    print(int_int.getFirst() + int_int.second)
 }

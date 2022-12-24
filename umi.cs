@@ -841,9 +841,18 @@ abstract class AstNode {
             return func_info;
         }
 
+        // The type of the left side of the dot of method calls
+        Type getParentInstance(Scope scope) => arguments[0].GetType(scope);
+
         public override Type GetType(Scope scope) {
-            FuncInfo func_info = GetFuncInfo(scope);  
-            return func_info.return_type.RealType(func_info.generics, generics);
+            FuncInfo func_info = GetFuncInfo(scope);
+            Type real_type = func_info.return_type.RealType(func_info.generics, generics);
+            if (!is_method_call) return real_type;
+
+            Type parent_instance = getParentInstance(scope);
+            var parent_class = scope.LookUpType(parent_instance.name, location);
+            if (!(parent_class is Name.Class)) return real_type;
+            return real_type.RealType(parent_instance, (Name.Class)parent_class);
         }
 
         protected override void SetParent(AstNode parent) {
@@ -867,6 +876,8 @@ abstract class AstNode {
 
             if (func_info.IsConstructor()) {
                 parent_instance = new Type(func_info.parent_class, Array.ConvertAll(generics, g => g.name));
+            } else if (is_method_call) {
+                parent_instance = getParentInstance(scope);
             }
 
             foreach (var arg in arguments) arg.GenIl(scope);
@@ -1197,8 +1208,9 @@ abstract class AstNode {
             DeclareVariables(generics_scope, local_var_types);
             
             List<Param> paras = parameters.ToList();
-            // TODO: check if the type needs to include the parent generics
-            if (!is_static) paras.Insert(0, new Param(location, new Type(parent_class), "this"));
+            if (!is_static) {
+                paras.Insert(0, new Param(location, new Type(parent_class, ((IlClass)node_parent).generics), "this"));
+            }
 
             // Handle prefix operator functions
             if (paras.Count == 2 && paras[0].type == Type.VOID) {
@@ -1296,7 +1308,7 @@ abstract class AstNode {
             Type parent_instance = parent.GetType(scope);
             var parent_class = (Name.Class)scope.LookUpType(parent_instance.name, location);
             var field = (Name.Field)parent_class.GetMember(child, location, scope);
-            return field.type.RealType(parent_class.generics, Array.ConvertAll(parent_instance.generics, g => new Type(g)));
+            return field.type.RealType(parent_instance, parent_class);
         }
 
         protected override void SetParent(AstNode node_parent) {
@@ -1335,7 +1347,7 @@ abstract class AstNode {
 
     public class IlClass : AstNode {
         public readonly string name;
-        protected readonly Name.Generic[] generics;
+        public readonly Name.Generic[] generics;
         readonly string il_name;
         protected string base_class;
         protected readonly Statements statements;
@@ -1384,7 +1396,7 @@ abstract class AstNode {
         public Class(Location loc, string name, Statements statements, string bas, Name.Generic[] generics) 
             : base(loc, name, ilName(name, generics), statements, bas, generics) {}
 
-        public override void GenIl(Scope scope) {
+        public override void GenIl(Scope _) {
             string extends = base_class == null ? "" : $" extends {base_class}";
             Output.WriteLine($".class {name}{Name.Generic.GenericsString(generics)}{extends}");
             Output.WriteLine("{");
@@ -1433,13 +1445,15 @@ abstract class AstNode {
 class Type {
     public readonly string name;
     public readonly string[] generics; // TODO: change to Type[]
-    
+
     public Type(string name, string[] generics) {
         this.name = name;
         this.generics = generics;
     }
 
     public Type(string name) : this(name, new string[0]) {}
+
+    public Type(string name, Name.Generic[] generics) : this(name, Array.ConvertAll(generics, g => g.name)) {}
 
     // `this` is the type used in the generic class/function
     // `generic_params` is in the definition of the generic class/function
@@ -1450,6 +1464,10 @@ class Type {
         // ?  I think this might suck
         var gens = Array.ConvertAll(result.generics, g => new Type(g).RealType(generic_params, generic_args).name);
         return new Type(result.name, gens);
+    }
+
+    public Type RealType(Type parent_instance, Name.Class parent_class) {
+        return RealType(parent_class.generics, Array.ConvertAll(parent_instance.generics, g => new Type(g)));
     }
 
     public static bool operator ==(Type a, string b) => a.name == b;
@@ -1539,8 +1557,11 @@ abstract class Name {
             return scope.LookUpType(base_class, location).GetMember(child, location, scope);
         }
 
+        // TODO: this won't work when inheriting from generic classes or il classes
+        public override string ToString() => (base_class != null ? $"(class {base_class}) " : "") + name;
+        
         public static string GenericsString(Generic[] generics) {
-            return generics.Length == 0 ? "" : $"<{string.Join(',', generics.Select(g => g.name))}>";
+            return generics.Length == 0 ? "" : $"<{string.Join<Name.Generic>(',', generics)}>";
         }
 
         static string genericIlName(int index, bool is_func) => is_func ? $"!!{index}" : $"!{index}";
@@ -1768,11 +1789,11 @@ abstract class FuncInfo {
             return $"{rt} {prefix}{il_name}{generic}({para_types})";
         }
 
-        public override void GenIl(Scope _, Type[] gens, Type parent_instance) {
+        public override void GenIl(Scope called_scope, Type[] gens, Type parent_instance) {
             string call_word = is_static ? "call" : "callvirt";
             if (IsConstructor()) call_word = "newobj";
             
-            string prefix = parent_class == null ? "" : scope.GetIlType(parent_instance, defined_at) + "::";
+            string prefix = parent_class == null ? "" : called_scope.GetIlType(parent_instance, defined_at) + "::";
             Output.WriteLine($"{call_word} {IlSignature(gens, prefix)}");
         }
     }
@@ -1872,8 +1893,11 @@ class Scope {
 }
 
 class Umi {
-    
+
+    static bool DEBUG = false;
+
     public static void Crash(string message, Location loc) {
+        if (DEBUG) throw new Exception(loc + ": " + message);
         Console.WriteLine(loc + ": " + message);
         Environment.Exit(1);
     }
@@ -1889,6 +1913,8 @@ class Umi {
             Console.WriteLine("You must specify the path to the file");
             Environment.Exit(1);
         }
+
+        if (args.Length > 1 && args[1] == "-d") DEBUG = true;
 
         List<Token> tokens = new Lexer("std.umi").Lex();
         tokens = new Lexer(args[0]).Lex(tokens);
