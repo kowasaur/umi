@@ -3,10 +3,17 @@
 il class Void "void" {}
 il class Int "int32" {}
 il class Bool "bool" {}
-il class Char "char" {}
+
+il class Char "char" {
+    # `this` is the separator like in Python
+    il String join(Array[String]) "call string string::Join(char, string[])"
+}
 
 il class String "string" {
     ilf Char get(Int) "get_Chars"
+
+    # `this` is the separator like in Python
+    il String join(Array[String]) "call string string::Join(string, string[])"
 }
 
 il class Array[T] "{0}[]" {
@@ -35,8 +42,6 @@ String input(String prompt) {
 }
 
 ilf Void exit(Int) "[mscorlib]System.Environment::Exit"
-
-ilf String +(String, String) "string::Concat"
 
 # Arithmetic Operators
 il Int +(Int, Int) "add"
@@ -68,3 +73,23 @@ il Int <<(Int, Int) "shl"
 il Int >>(Int, Int) "shr"
 il Int &(Int, Int) "and"
 il Int |(Int, Int) "or"
+
+ilf String +(String, String) "string::Concat"
+
+# TODO: put these in String (requires letting non-il in il classes)
+# the Int is actually an enum but Umi does not have enums yet
+il Array[String] split(String, Char, Int) "call instance string[] string::Split(char, valuetype [mscorlib]System.StringSplitOptions)"
+Array[String] split(String string, Char separator) { split(string, separator, 0) }
+il Array[String] split(String, String, Int) "call instance string[] string::Split(string, valuetype [mscorlib]System.StringSplitOptions)"
+Array[String] split(String string, String separator) { split(string, separator, 0) }
+
+# Create a range of integers from `low` to `high` (both inclusive)
+Array[Int] ...(Int low, Int high) {
+    Array[Int] range = Array[Int](high - low + 1)
+    mut Int i = 0
+    while i < high {
+        range.set(i, low + i)
+        i = i + 1
+    }
+    range
+}
