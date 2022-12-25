@@ -1,8 +1,12 @@
 # This is the standard library, included by default in all umi programs
 
 il class Void "void" {}
-il class Int "int32" {}
 il class Bool "bool" {}
+
+il class Int "int32" {
+    il Int(String) "call int32 int32::Parse(string)"
+    il String toString() "call string class [mscorlib]System.Convert::ToString(int32)"
+}
 
 il class Char "char" {
     # `this` is the separator like in Python
@@ -11,6 +15,8 @@ il class Char "char" {
 
 il class String "string" {
     ilf Char get(Int) "get_Chars"
+    ilf String lowercase() "ToLower"
+    ilf String uppercase() "ToUpper"
 
     # `this` is the separator like in Python
     il String join(Array[String]) "call string string::Join(string, string[])"
@@ -29,10 +35,21 @@ il class Console "[mscorlib]System.Console" {
     ilf static Void write(Char) "Write"
 }
 
+il class File "[mscorlib]System.IO.File" {
+    ilf static String read(String) "ReadAllText"
+    ilf static Array[String] readLines(String) "ReadAllLines"
+}
+
 ilf Void print(String) "[mscorlib]System.Console::WriteLine"
 ilf Void print(Char) "[mscorlib]System.Console::WriteLine"
 ilf Void print(Int) "[mscorlib]System.Console::WriteLine"
 ilf Void print(Bool) "[mscorlib]System.Console::WriteLine"
+
+# TODO: somehow make this generic
+Void print(Array[String] array) {
+    if array.len() == 0 { print("[]") }
+    else { print("[\"" + "\", \"".join(array) + "\"]") }
+}
 
 ilf String input() "[mscorlib]System.Console::ReadLine"
 # TODO: Maybe add inline functions
