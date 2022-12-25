@@ -15,6 +15,11 @@ il class Char "char" {
 
 il class String "string" {
     ilf Char get(Int) "get_Chars"
+
+    # start_index, length
+    ilf String substring(Int, Int) "Substring"
+    ilf String substring(Int) "Substring"
+
     ilf String lowercase() "ToLower"
     ilf String uppercase() "ToUpper"
 
@@ -24,9 +29,24 @@ il class String "string" {
 
 il class Array[T] "{0}[]" {
     il Array[T](Int) "newarr {0}"
-    il Void set(Int, T) "stelem {0}"
     il T get(Int) "ldelem {0}"
-    il Int len() "ldlen"
+    il Void set(Int, T) "stelem {0}"
+    il Int size() "ldlen"
+}
+
+il class List[T] "class [mscorlib]System.Collections.Generic.List`1<{0}>" {
+    # TODO: fix generics of constructors so ilf can be used instead
+    il List[T]() "newobj void class [mscorlib]System.Collections.Generic.List`1<{0}>::.ctor()"
+    ilf T get(Int) "get_Item"
+    ilf Void set(Int, T) "set_Item"
+    ilf Int size() "get_Count"
+    ilf Void add(T) "Add"
+}
+
+il class Dict[K, V] "class [mscorlib]System.Collections.Generic.Dictionary`2<{0}, {1}>" {
+    il Dict[K, V]() "newobj void class [mscorlib]System.Collections.Generic.Dictionary`2<{0}, {1}>::.ctor()"
+    ilf V get(K) "get_Item"
+    ilf Void set(K, V) "set_Item"
 }
 
 il class Console "[mscorlib]System.Console" {
@@ -47,7 +67,7 @@ ilf Void print(Bool) "[mscorlib]System.Console::WriteLine"
 
 # TODO: somehow make this generic
 Void print(Array[String] array) {
-    if array.len() == 0 { print("[]") }
+    if array.size() == 0 { print("[]") }
     else { print("[\"" + "\", \"".join(array) + "\"]") }
 }
 
