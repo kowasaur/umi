@@ -8,6 +8,11 @@ il class Int "int32" {
     il String toString() "call string class [mscorlib]System.Convert::ToString(int32)"
 }
 
+il class Long "int64" {
+    il Long(Int) "conv.i8"
+    il Int toInt() "conv.i4"
+}
+
 il class Char "char" {
     # `this` is the separator like in Python
     il String join(Array[String]) "call string string::Join(char, string[])"
@@ -15,6 +20,7 @@ il class Char "char" {
 
 il class String "string" {
     ilf Char get(Int) "get_Chars"
+    ilf Int size() "get_Length"
 
     # start_index, length
     ilf String substring(Int, Int) "Substring"
@@ -64,6 +70,7 @@ ilf Void print(String) "[mscorlib]System.Console::WriteLine"
 ilf Void print(Char) "[mscorlib]System.Console::WriteLine"
 ilf Void print(Int) "[mscorlib]System.Console::WriteLine"
 ilf Void print(Bool) "[mscorlib]System.Console::WriteLine"
+ilf Void print(Long) "[mscorlib]System.Console::WriteLine"
 
 # TODO: somehow make this generic
 Void print(Array[String] array) {
@@ -87,6 +94,11 @@ il Int *(Int, Int) "mul"
 il Int /(Int, Int) "div"
 il Int %(Int, Int) "rem"
 il Int -(Void, Int) "neg"
+il Long +(Long, Long) "add"
+il Long -(Long, Long) "sub"
+il Long *(Long, Long) "mul"
+il Long /(Long, Long) "div"
+il Long %(Long, Long) "rem"
 
 # Comparison Operators
 ilf Bool ==(String, String) "string::op_Equality"
@@ -99,6 +111,9 @@ il Bool >(Int, Int) "cgt"
 il Bool <(Int, Int) "clt"
 Bool >=(Int a, Int b) { !(a < b) }
 Bool <=(Int a, Int b) { !(a > b) }
+il Bool ==(Long, Long) "ceq"
+Bool !=(Long a, Long b) { (a == b) == false }
+il Bool <(Long, Long) "clt"
 
 # Logical Operators
 il Bool &&(Bool, Bool) "and"
