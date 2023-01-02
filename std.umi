@@ -55,6 +55,14 @@ il class Dict[K, V] "class [mscorlib]System.Collections.Generic.Dictionary`2<{0}
     ilf Void set(K, V) "set_Item"
 }
 
+il class Set[T] "class [System.Core]System.Collections.Generic.HashSet`1<{0}>" {
+    il Set[T]() "newobj void class [System.Core]System.Collections.Generic.HashSet`1<{0}>::'.ctor'()"
+    ilf Int size() "get_Count"
+    ilf Bool add(T) "Add"
+    ilf Bool remove(T) "Remove"
+    ilf Bool contains(T) "Contains"
+}
+
 il class Console "[mscorlib]System.Console" {
     ilf static Void write(String) "Write"
     ilf static Void write(Int) "Write"

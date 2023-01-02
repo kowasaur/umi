@@ -1,0 +1,33 @@
+# TODO: Put this in std.umi and make work for everything
+# Same as discard statement in Nim
+il Void />(Bool, Void) "pop"
+
+Void main() {
+    List[String] list = List[String]()
+    list.add("bruh")
+    list.add("moment")
+    print(list.size())
+    print(list.get(1))
+    list.set(0, "hurb")
+    print(list.get(0))
+
+    Dict[String, Int] dict = Dict[String, Int]()
+    dict.set("bronze", 2)
+    dict.set("gold", 10)
+    print(dict.get("gold"))
+    dict.set("gold", 9)
+    print(dict.get("gold"))
+    print(dict.get("bronze"))
+    
+    Set[Char] set = Set[Char]()
+    # the brackets exist because unary operators have higher precedence than binary operators
+    # TODO: change the parser so the brackets aren't required
+    (set.add('b'))/>
+    (set.add('%'))/>
+    print(set.size())
+    print(set.contains('b'))
+    print(set.contains('%'))
+    print(set.contains('B'))
+    (set.remove('%'))/>
+    print(set.contains('%'))
+}
