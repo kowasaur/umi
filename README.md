@@ -30,14 +30,14 @@ Note that the .expected files are the expected output of the corresponding .umi 
     -   Immutable references like `final` in Java
     -   Make variables mutable with `mut` keyword
 -   Including other umi files (importing)
+-   Creating range array with `...`
+    -   E.g. `0...10`
 
 ### Planned
 
 -   Aliases within local scopes
 -   Macros or inline functions
 -   `for` `in` loop
--   Creating range array with `...`
-    -   E.g. `0...10`
 -   String interpolation
 -   Anonymous functions
 -   Switch cases

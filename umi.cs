@@ -62,14 +62,11 @@ class Lexer {
     int line = 1;
     int column = 1;
 
-    delegate bool ContinueConsuming(char next);
-
     public Lexer(string file_path) {
         string path = file_path;
-        if (!File.Exists(file_path)) path = AppDomain.CurrentDomain.BaseDirectory + path; // path of exe
-        if (!File.Exists(path)) {
-            Console.WriteLine(file_path + " does not exist");
-            Environment.Exit(1);
+        if (!File.Exists(file_path)) {
+            path = AppDomain.CurrentDomain.BaseDirectory + path; // path of exe
+            if (!File.Exists(path)) Umi.Exit(file_path + " does not exist");
         }
 
         file = File.ReadAllText(path);
@@ -89,13 +86,13 @@ class Lexer {
         return file[i];
     }
 
-    string ConsumeWhile(ContinueConsuming continueConsuming) {
+    string ConsumeWhile(Func<char, bool> continueConsuming) {
         string content = "";
         while (continueConsuming(file[i + 1])) content += NextChar();
         return content;
     }
 
-    string ConsumeWhile(char start, ContinueConsuming cc) => start.ToString() + ConsumeWhile(cc);
+    string ConsumeWhile(char start, Func<char, bool> cc) => start.ToString() + ConsumeWhile(cc);
     
     string QuoteConsume(char q) {
         string content = "";
@@ -1532,7 +1529,7 @@ class Output {
     // Compile the C# files and then put the il into the output
     public static void WriteCsIl() {
         foreach (string path in cs_paths) {
-            Umi.RunCommand("mcs", "-out:temp_cs.dll -target:library " + path);
+            Umi.RunCommand("mcs", "-unsafe -out:temp_cs.dll -target:library " + path);
             Umi.RunCommand("monodis", "--output=temp_cs.il temp_cs.dll");
             // ? not sure whether this will always work tbh with the version
             string necessary_il = File.ReadAllText("temp_cs.il").Split(".ver  0:0:0:0\n}")[1];
@@ -1922,10 +1919,14 @@ class Umi {
 
     static bool DEBUG = false;
 
+    public static void Exit(string message) {
+        Console.WriteLine(message);
+        Environment.Exit(1);
+    }
+
     public static void Crash(string message, Location loc) {
         if (DEBUG) throw new Exception(loc + ": " + message);
-        Console.WriteLine(loc + ": " + message);
-        Environment.Exit(1);
+        Exit(loc + ": " + message);
     }
 
     public static void RunCommand(string command, string args) {
@@ -1935,15 +1936,32 @@ class Umi {
     }
 
     static void Main(string[] args) {
-        if (args.Length < 1) {
-            Console.WriteLine("You must specify the path to the file");
-            Environment.Exit(1);
+        string path = "";
+        bool RUN = false;
+
+        foreach (string arg in args) {
+            if (arg[0] != '-') {
+                if (path != "") Exit("Only supply one umi file");
+                path = arg;
+                continue;
+            }
+            switch (arg) {
+                case "-d":
+                    DEBUG = true;
+                    break;
+                case "-r":
+                    RUN = true;
+                    break;
+                default:
+                    Exit($"Unrecognised command line option `{arg}`");
+                    break;
+            }
         }
 
-        if (args.Length > 1 && args[1] == "-d") DEBUG = true;
+        if (path == "") Exit("You must specify the path to the file");
 
         List<Token> tokens = new Lexer("std.umi").Lex();
-        tokens = new Lexer(args[0]).Lex(tokens);
+        tokens = new Lexer(path).Lex(tokens);
         AstNode.Program ast = Grammar.ParseTokens(tokens);
 
         Scope global_namespace = new Scope(null);
@@ -1951,6 +1969,8 @@ class Umi {
         ast.GenIl(global_namespace);
 
         RunCommand("ilasm", "-quiet output.il");
+        if (!DEBUG) File.Delete("output.il");
+        if (RUN) RunCommand("mono", "output.exe");
     }
 
 }

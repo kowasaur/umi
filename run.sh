@@ -1,1 +1,1 @@
-mcs umi.cs && mono umi.exe $1 $2 && mono output.exe
+mcs umi.cs && mono umi.exe -r $1 $2
