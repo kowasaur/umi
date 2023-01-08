@@ -177,6 +177,9 @@ class Lexer {
             } else if (Char.IsDigit(c)) {
                 type = Token.Type.INTEGER;
                 value = ConsumeWhile(c, Char.IsDigit);
+                if (file[i + 1] == 'x') {
+                    value += ConsumeWhile(NextChar(), ch => Char.IsDigit(ch) || ('A' <= ch && ch <= 'F'));
+                }
             } else if (IsOperatorChar(c)) {
                 string content = ConsumeWhile(c, IsOperatorChar);
                 if (content == "=") {
