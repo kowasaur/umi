@@ -2,6 +2,8 @@ class Person {
     mut String name
     Int age
 
+    alias GREETING = "Hello I am "
+
     Person(String name, Int a) {
         this.name = name
         age = a
@@ -9,7 +11,7 @@ class Person {
     }
 
     Void introduce() {
-        Console.write("Hello I am " + name + ", ")
+        Console.write(GREETING + name + ", ")
         print(this.age)
     }
 
@@ -21,6 +23,7 @@ il class IntList "class [mscorlib]System.Collections.Generic.List`1<int32>" {
     ilf IntList() ".ctor"
     il Void add(Int) "callvirt void class [mscorlib]System.Collections.Generic.List`1<int32>::Add(!0)"
     il Int get(Int) "callvirt !0 class [mscorlib]System.Collections.Generic.List`1<int32>::get_Item(int32)"
+    alias RANDOM_NUMBER = 42
 }
 
 IntList add10(IntList i) {
@@ -51,6 +54,7 @@ Void main() {
     list = add10(list)
     list = add10(list)
     print(list.get(1))
+    print(IntList.RANDOM_NUMBER)
 
     Logger.log("This is a message")
     Logger.log("pog")

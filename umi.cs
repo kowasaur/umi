@@ -612,13 +612,13 @@ abstract class Grammar {
             (loc, nodes) => new AstNode.Field(loc, TypeNodeType(nodes[2]), ValueText(nodes[3]), nodes[1] != null, nodes[0] != null)
         );
 
-        var CLASS_STMTS = NewStatements("CLASS_STMTS", new Grammar[] {FUNC_DEF, FIELD});
+        var CLASS_STMTS = NewStatements("CLASS_STMTS", new Grammar[] {FUNC_DEF, FIELD, ALIAS});
         var CLASS_BLOCK = NewBlock("CLASS_BLOCK", CLASS_STMTS);
         var CLASS_DEF = new Pattern("CLASS_DEF", new Grammar[] {CLASS, IDENTIFIER, GENERICS, INHERIT, CLASS_BLOCK},
             (loc, nodes) => new AstNode.Class(loc, ValueText(nodes[1]), (AstNode.Statements)nodes[4], MaybeValueText(nodes[3]), GenericsArray(nodes[2]))
         );
 
-        var IL_CLASS_STMTS = NewStatements("IL_CLASS_STMTS", new Grammar[] {IL_FUNC});
+        var IL_CLASS_STMTS = NewStatements("IL_CLASS_STMTS", new Grammar[] {IL_FUNC, ALIAS});
         var IL_CLASS_BLOCK = NewBlock("IL_CLASS_BLOCK", IL_CLASS_STMTS);
         var IL_CLASS = new Pattern("IL_CLASS", new Grammar[] {IL, CLASS, IDENTIFIER, GENERICS, STRING, IL_CLASS_BLOCK}, (loc, nodes) => {
             string il = ValueText(nodes[4]);
@@ -949,14 +949,15 @@ abstract class AstNode {
 
         public override void GenIl(Scope scope) {
             Name.Class cls = dot.GetClass(scope);
-            Name.Field field = dot.GetField(cls, scope);
+            Name.Varish field = (Name.Varish)dot.GetVarish(cls, scope);
+            if (field is Name.Alias) Umi.Crash("Can not reassign alias", location);
 
             value.ExpectType(dot.GetType(scope), scope);
             field.CheckCanAssign(this);
 
             dot.parent.GenIl(scope);
             value.GenIl(scope);
-            field.GenStoreIl(cls.members, location, dot.parent.GetType(scope));
+            ((Name.Field)field).GenStoreIl(cls.members, location, dot.parent.GetType(scope));
         }
     }
     
@@ -1304,13 +1305,13 @@ abstract class AstNode {
 
         public Name.Class GetClass(Scope scope) => (Name.Class)scope.GetClass(parent, location);
 
-        public Name.Field GetField(Name.Class cls, Scope scope) => (Name.Field)cls.GetMember(child, location, scope);
+        public Name.Varish GetVarish(Name.Class cls, Scope scope) => (Name.Varish)cls.GetMember(child, location, scope);
         
         public override Type GetType(Scope scope) {
             Type parent_instance = parent.GetType(scope);
             var parent_class = (Name.Class)scope.LookUpType(parent_instance.name, location);
-            var field = (Name.Field)parent_class.GetMember(child, location, scope);
-            return field.type.RealType(parent_instance, parent_class);
+            var field = (Name.Varish)parent_class.GetMember(child, location, scope);
+            return field.GetType(scope).RealType(parent_instance, parent_class);
         }
 
         protected override void SetParent(AstNode node_parent) {
@@ -1320,8 +1321,13 @@ abstract class AstNode {
 
         public override void GenIl(Scope scope) {
             Name.Class cls = GetClass(scope);
+            Name.Varish v = GetVarish(cls, scope);
+            if (v is Name.Alias) {
+                v.GenLoadIl(scope, null);
+                return;
+            }
             parent.GenIl(scope);
-            GetField(cls, scope).GenLoadIl(cls.members, location, parent.GetType(scope));
+            ((Name.Field)v).GenLoadIl(cls.members, location, parent.GetType(scope));
         }
     }
 
@@ -1701,7 +1707,7 @@ abstract class Name {
     }
 
     public class Field : Varish {
-        public readonly Type type;
+        readonly Type type;
         public readonly bool is_mutable;
         readonly string name;
         readonly Type parent_class; // only use the generics when used without `this`
