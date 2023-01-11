@@ -45,7 +45,7 @@ class Token {
         STRING, CHAR, INTEGER, BOOLEAN,
         LPARAN, RPARAN, LCURLY, RCURLY, LSQUARE, RSQUARE,
         NEWLINE, COMMA, EQUAL, COLON,
-        IL, ILF, ALIAS, CLASS, MUT, STATIC,
+        IL, ILS, ALIAS, CLASS, MUT, STATIC,
         IF, ELSE, WHILE, INCLUDE,
         RETURN, BREAK, CONTINUE,
         AS
@@ -124,8 +124,8 @@ class Lexer {
                     case "il":
                         type = Token.Type.IL;
                         break;
-                    case "ilf":
-                        type = Token.Type.ILF;
+                    case "ils":
+                        type = Token.Type.ILS;
                         break;
                     case "alias":
                         type = Token.Type.ALIAS;
@@ -417,11 +417,11 @@ abstract class Grammar {
         var STATIC = new Tok(Token.Type.STATIC, optional: true);
         var CLASS = new Tok(Token.Type.CLASS);
         var IL = new Tok(Token.Type.IL);
-        var ILF = new Tok(Token.Type.ILF);
+        var ILS = new Tok(Token.Type.ILS);
         var IF = new Tok(Token.Type.IF);
         var ELSE = new Tok(Token.Type.ELSE);
 
-        var ILish = OneOf("ILish", new Grammar[] {IL, ILF});
+        var ILish = OneOf("ILish", new Grammar[] {IL, ILS});
 
         var STRING = new Pattern("STRING", new Grammar[] {new Tok(Token.Type.STRING)}, 
             (_, nodes) => new AstNode.StringLiteral((AstNode.Tok)nodes[0])
@@ -601,9 +601,9 @@ abstract class Grammar {
             new Grammar[] {ILish, FUNC_DEF_HEAD, LPARAN, TYPE_LIST, RPARAN, STRING},
             (loc, nodes) => {
                 string il = ValueText(nodes[5]);
-                bool is_ilf = ((AstNode.Tok)nodes[0]).token.type == Token.Type.ILF;
+                bool is_ils = ((AstNode.Tok)nodes[0]).token.type == Token.Type.ILS;
                 Type[] paras = Array.ConvertAll(MultiArray<AstNode.TypeNode>(nodes[3]), n => n.type);
-                return new AstNode.IlFunc(loc, (AstNode.FuncDefHead)nodes[1], il, paras, is_ilf);
+                return new AstNode.IlFunc(loc, (AstNode.FuncDefHead)nodes[1], il, paras, is_ils);
             }
         );
 
@@ -1259,13 +1259,13 @@ abstract class AstNode {
         readonly FuncDefHead head;
         readonly string il;
         readonly Type[] param_types;
-        readonly bool is_ilf;
+        readonly bool is_ils;
 
-        public IlFunc(Location loc, FuncDefHead func_def_head, string il, Type[] param_types, bool is_ilf) : base(loc) {
+        public IlFunc(Location loc, FuncDefHead func_def_head, string il, Type[] param_types, bool is_ils) : base(loc) {
             head = func_def_head;
             this.il = il;
             this.param_types = param_types;
-            this.is_ilf = is_ilf;
+            this.is_ils = is_ils;
         }
 
         public override void CreateNameInfo(Scope scope) {
@@ -1275,7 +1275,7 @@ abstract class AstNode {
 
             bool is_constructor = head.return_type.name == head.name;
             FuncInfo func_info;
-            if (is_ilf) func_info = new FuncInfo.Ord(param_types, head.return_type, is_static, il, location, parent_class, head.generics, scope, is_constructor);
+            if (is_ils) func_info = new FuncInfo.Ord(param_types, head.return_type, is_static, il, location, parent_class, head.generics, scope, is_constructor);
             else func_info = new FuncInfo.Il(param_types, head.return_type, il, head.generics, parent_class, location, is_constructor);
             AddToScope(scope, parent_class, func_info, head.name, head.return_type, is_static);
         }
@@ -1353,7 +1353,7 @@ abstract class AstNode {
         }
 
         public override void GenIl(Scope scope) {
-            Output.WriteLine($".field{(is_static ? " static" : "")} {scope.GetIlType(type, location)} {name}\n");
+            Output.WriteLine($".field{(is_static ? " static" : "")} {scope.GetIlType(type, location)} {name}");
         }
     }
 
@@ -1408,8 +1408,8 @@ abstract class AstNode {
         public Class(Location loc, string name, Statements statements, string bas, Name.Generic[] generics) 
             : base(loc, name, ilName(name, generics), statements, bas, generics) {}
 
-        public override void GenIl(Scope _) {
-            string extends = base_class == null ? "" : $" extends {base_class}";
+        public override void GenIl(Scope scope) {
+            string extends = base_class == null ? "" : $" extends {scope.GetIlType(new Type(base_class), location)}";
             Output.WriteLine($".class {name}{Name.Generic.GenericsString(generics)}{extends}");
             Output.WriteLine("{");
             Output.Indent();

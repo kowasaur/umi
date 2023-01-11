@@ -20,7 +20,7 @@ class Person {
 }
 
 il class IntList "class [mscorlib]System.Collections.Generic.List`1<int32>" {
-    ilf IntList() ".ctor"
+    ils IntList() ".ctor"
     il Void add(Int) "callvirt void class [mscorlib]System.Collections.Generic.List`1<int32>::Add(!0)"
     il Int get(Int) "callvirt !0 class [mscorlib]System.Collections.Generic.List`1<int32>::get_Item(int32)"
     alias RANDOM_NUMBER = 42

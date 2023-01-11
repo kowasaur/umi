@@ -17,7 +17,7 @@
         "comments": { "name": "comment.line.number-sign", "begin": "#", "end": "\n" },
         "keywords": {
             "patterns": [
-                { "name": "keyword.other", "match": "\\b(il|ilf)\\b" },
+                { "name": "keyword.other", "match": "\\b(il|ils)\\b" },
                 {
                     "name": "keyword.control",
                     "match": "\\b(if|else|while|return|break|continue|include)\\b"

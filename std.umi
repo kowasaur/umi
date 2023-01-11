@@ -19,15 +19,15 @@ il class Char "char" {
 }
 
 il class String "string" {
-    ilf Char get(Int) "get_Chars"
-    ilf Int size() "get_Length"
+    ils Char get(Int) "get_Chars"
+    ils Int size() "get_Length"
 
     # start_index, length
-    ilf String substring(Int, Int) "Substring"
-    ilf String substring(Int) "Substring"
+    ils String substring(Int, Int) "Substring"
+    ils String substring(Int) "Substring"
 
-    ilf String lowercase() "ToLower"
-    ilf String uppercase() "ToUpper"
+    ils String lowercase() "ToLower"
+    ils String uppercase() "ToUpper"
 
     # `this` is the separator like in Python
     il String join(Array[String]) "call string string::Join(string, string[])"
@@ -41,44 +41,44 @@ il class Array[T] "{0}[]" {
 }
 
 il class List[T] "class [mscorlib]System.Collections.Generic.List`1<{0}>" {
-    # TODO: fix generics of constructors so ilf can be used instead
+    # TODO: fix generics of constructors so ils can be used instead
     il List[T]() "newobj void class [mscorlib]System.Collections.Generic.List`1<{0}>::.ctor()"
-    ilf T get(Int) "get_Item"
-    ilf Void set(Int, T) "set_Item"
-    ilf Int size() "get_Count"
-    ilf Void add(T) "Add"
+    ils T get(Int) "get_Item"
+    ils Void set(Int, T) "set_Item"
+    ils Int size() "get_Count"
+    ils Void add(T) "Add"
 }
 
 il class Dict[K, V] "class [mscorlib]System.Collections.Generic.Dictionary`2<{0}, {1}>" {
     il Dict[K, V]() "newobj void class [mscorlib]System.Collections.Generic.Dictionary`2<{0}, {1}>::.ctor()"
-    ilf V get(K) "get_Item"
-    ilf Void set(K, V) "set_Item"
+    ils V get(K) "get_Item"
+    ils Void set(K, V) "set_Item"
 }
 
 il class Set[T] "class [System.Core]System.Collections.Generic.HashSet`1<{0}>" {
     il Set[T]() "newobj void class [System.Core]System.Collections.Generic.HashSet`1<{0}>::'.ctor'()"
-    ilf Int size() "get_Count"
-    ilf Bool add(T) "Add"
-    ilf Bool remove(T) "Remove"
-    ilf Bool contains(T) "Contains"
+    ils Int size() "get_Count"
+    ils Bool add(T) "Add"
+    ils Bool remove(T) "Remove"
+    ils Bool contains(T) "Contains"
 }
 
 il class Console "[mscorlib]System.Console" {
-    ilf static Void write(String) "Write"
-    ilf static Void write(Int) "Write"
-    ilf static Void write(Char) "Write"
+    ils static Void write(String) "Write"
+    ils static Void write(Int) "Write"
+    ils static Void write(Char) "Write"
 }
 
 il class File "[mscorlib]System.IO.File" {
-    ilf static String read(String) "ReadAllText"
-    ilf static Array[String] readLines(String) "ReadAllLines"
+    ils static String read(String) "ReadAllText"
+    ils static Array[String] readLines(String) "ReadAllLines"
 }
 
-ilf Void print(String) "[mscorlib]System.Console::WriteLine"
-ilf Void print(Char) "[mscorlib]System.Console::WriteLine"
-ilf Void print(Int) "[mscorlib]System.Console::WriteLine"
-ilf Void print(Bool) "[mscorlib]System.Console::WriteLine"
-ilf Void print(Long) "[mscorlib]System.Console::WriteLine"
+ils Void print(String) "[mscorlib]System.Console::WriteLine"
+ils Void print(Char) "[mscorlib]System.Console::WriteLine"
+ils Void print(Int) "[mscorlib]System.Console::WriteLine"
+ils Void print(Bool) "[mscorlib]System.Console::WriteLine"
+ils Void print(Long) "[mscorlib]System.Console::WriteLine"
 
 # TODO: somehow make this generic
 Void print(Array[String] array) {
@@ -86,14 +86,14 @@ Void print(Array[String] array) {
     else { print("[\"" + "\", \"".join(array) + "\"]") }
 }
 
-ilf String input() "[mscorlib]System.Console::ReadLine"
+ils String input() "[mscorlib]System.Console::ReadLine"
 # TODO: Maybe add inline functions
 String input(String prompt) {
     Console.write(prompt)
     input()
 }
 
-ilf Void exit(Int) "[mscorlib]System.Environment::Exit"
+ils Void exit(Int) "[mscorlib]System.Environment::Exit"
 
 # Arithmetic Operators
 il Int +(Int, Int) "add"
@@ -109,10 +109,10 @@ il Long /(Long, Long) "div"
 il Long %(Long, Long) "rem"
 
 # Comparison Operators
-ilf Bool ==(String, String) "string::op_Equality"
+ils Bool ==(String, String) "string::op_Equality"
 il Bool ==(Bool, Bool) "ceq"
 il Bool ==(Int, Int) "ceq"
-ilf Bool !=(String, String) "string::op_Inequality"
+ils Bool !=(String, String) "string::op_Inequality"
 Bool !=(Bool a, Bool b) { (a == b) == false }
 Bool !=(Int a, Int b) { (a == b) == false }
 il Bool >(Int, Int) "cgt"
@@ -134,7 +134,7 @@ il Int >>(Int, Int) "shr"
 il Int &(Int, Int) "and"
 il Int |(Int, Int) "or"
 
-ilf String +(String, String) "string::Concat"
+ils String +(String, String) "string::Concat"
 
 # TODO: put these in String (requires letting non-il in il classes)
 # the Int is actually an enum but Umi does not have enums yet
