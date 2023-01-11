@@ -621,7 +621,14 @@ abstract class Grammar {
             (loc, nodes) => new AstNode.Class(loc, ValueText(nodes[1]), (AstNode.Statements)nodes[4], MaybeValueText(nodes[3]), GenericsArray(nodes[2]))
         );
 
-        var IL_CLASS_STMTS = NewStatements("IL_CLASS_STMTS", new Grammar[] {IL_FUNC, ALIAS});
+        // I don't think a non-ils il field makes sense
+        var IL_FIELD = new Pattern("IL_FIELD", new Grammar[] {ILS, FIELD, STRING}, (_, nodes) => {
+            var field = (AstNode.Field)nodes[1];
+            field.il_name = ValueText(nodes[2]);
+            return field;
+        });
+
+        var IL_CLASS_STMTS = NewStatements("IL_CLASS_STMTS", new Grammar[] {IL_FIELD, IL_FUNC, ALIAS});
         var IL_CLASS_BLOCK = NewBlock("IL_CLASS_BLOCK", IL_CLASS_STMTS);
         var IL_CLASS = new Pattern("IL_CLASS", new Grammar[] {IL, CLASS, IDENTIFIER, GENERICS, STRING, IL_CLASS_BLOCK}, (loc, nodes) => {
             string il = ValueText(nodes[4]);
@@ -1337,6 +1344,7 @@ abstract class AstNode {
     public class Field : AstNode {
         public readonly Type type;
         public readonly string name;
+        public string il_name; // for ils fields
         readonly bool is_mutable;
         readonly bool is_static;
 
@@ -1348,8 +1356,10 @@ abstract class AstNode {
         }
 
         public override void CreateNameInfo(Scope scope) {
+            if (il_name == null) il_name = name;
+
             var cls = (AstNode.IlClass)node_parent;
-            scope.Add(name, new Name.Field(location, type, name, new Type(cls.name, cls.generics), is_mutable, is_static));
+            scope.Add(name, new Name.Field(location, type, name, new Type(cls.name, cls.generics), is_mutable, is_static, il_name));
         }
 
         public override void GenIl(Scope scope) {
@@ -1713,15 +1723,17 @@ abstract class Name {
         readonly Type type;
         public readonly bool is_mutable;
         readonly string name;
+        readonly string il_name;
         readonly Type parent_class; // only use the generics when used without `this`
         readonly bool is_static;
 
-        public Field(Location defined_at, Type type, string name, Type pc, bool mutable, bool stati) : base(defined_at) {
+        public Field(Location defined_at, Type type, string name, Type pc, bool mutable, bool stati, string il_name) : base(defined_at) {
             this.type = type;
             this.name = name;
             this.parent_class = pc;
             is_mutable = mutable;
             is_static = stati;
+            this.il_name = il_name;
         }
 
         public override void CheckCanAssign(AstNode assignment) {
@@ -1734,7 +1746,7 @@ abstract class Name {
         public override Type GetType(Scope _) => type;
 
         void GenInstructionIl(Scope scope, Location loc, string instruction, Type parent) {
-            Output.WriteLine($"{instruction} {scope.GetIlType(type, loc)} {scope.GetIlType(parent, loc)}::{name}");
+            Output.WriteLine($"{instruction} {scope.GetIlType(type, loc)} {scope.GetIlType(parent, loc)}::{il_name}");
         }
 
         public void GenLoadIl(Scope scope, Location loc, Type parent) => GenInstructionIl(scope, loc, is_static ? "ldsfld" : "ldfld", parent);

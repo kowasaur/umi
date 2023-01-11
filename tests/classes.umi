@@ -1,3 +1,12 @@
+include "./tests/classes.cs"
+
+il class Thing "Thing" {
+    ils static mut String string "str"
+    ils mut Int number "num"
+
+    ils Thing() ".ctor"
+}
+
 class Person {
     mut String name
     Int age
@@ -60,4 +69,10 @@ Void main() {
     Logger.log("pog")
     Logger.log("I don't know what to write")
     print(Logger.everything_logged)
+
+    Thing thing = Thing()
+    thing.number = 3
+    Thing.string = "Thing string"
+    print(thing.number)
+    print(Thing.string)
 }
