@@ -25,6 +25,8 @@ class Location {
     public static bool operator >(Location a, Location b) => a.index > b.index;
     public static bool operator <(Location a, Location b) => a.index < b.index;
 
+    public static Location NOWHERE = new Location(-1, -1, null, -1);
+
 }
 
 class Token {
@@ -654,15 +656,17 @@ abstract class Grammar {
             Umi.Crash($"Expected `{furthest_expected}` but found `{furthest_got.type}`", furthest_got.location);
         }
 
-        List<AstNode> statements = ((AstNode.Multiple<AstNode>)ast[0]).ToList();
-        foreach (var include in statements.Where(s => s is AstNode.Include).Cast<AstNode.Include>()) {
+        List<AstNode> statements = new List<AstNode>();
+        List<AstNode> these_statements = ((AstNode.Multiple<AstNode>)ast[0]).ToList();
+
+        foreach (var include in these_statements.Where(s => s is AstNode.Include).Cast<AstNode.Include>()) {
             if (Path.GetExtension(include.path) == ".cs") {
                 Output.cs_paths.Add(include.path);
                 continue;
             }
-            statements = ParseTokens(new Lexer(include.path).Lex()).global_statements.Concat(statements).ToList();
+            statements.AddRange(ParseTokens(new Lexer(include.path).Lex()).global_statements);
         }
-        return new AstNode.Program(statements);
+        return new AstNode.Program(statements.Concat(these_statements).ToList());
     }
 
 }
@@ -716,7 +720,7 @@ abstract class AstNode {
 
     // For prefix and postfix operators
     public class Nothing : AstNode {
-        public Nothing() : base(new Location(-1, -1, null, -1)) {}
+        public Nothing() : base(Location.NOWHERE) {}
         public override void GenIl(Scope _) {}
     }
 
@@ -2020,7 +2024,11 @@ class Umi {
 
         if (path == "") Exit("You must specify the path to the file");
 
-        List<Token> tokens = new Lexer("std.umi").Lex();
+        var INCLUDE = new Token(Token.Type.INCLUDE, Location.NOWHERE, null);
+        var PATH = new Token(Token.Type.STRING, Location.NOWHERE, "std.umi");
+        var NL = new Token(Token.Type.NEWLINE, Location.NOWHERE, null);
+        List<Token> tokens = new Token[] {INCLUDE, PATH, NL}.ToList();
+
         tokens = new Lexer(path).Lex(tokens);
         AstNode.Program ast = Grammar.ParseTokens(tokens);
 
