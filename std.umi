@@ -1,6 +1,7 @@
 # This is the standard library, included by default in all umi programs
 
 il class Void "void" {}
+il class Struct "[mscorlib]System.ValueType" {}
 il class Bool "bool" {}
 
 il class Int "int32" {

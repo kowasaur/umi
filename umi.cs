@@ -796,18 +796,20 @@ abstract class AstNode {
     public class FuncCall : AstNode {
         readonly string name;
         readonly AstNode[] arguments;
-        readonly bool is_method_call;
+        AstNode method_caller; // left of dot of method calls
         readonly Type[] generics;
 
-        public FuncCall(Location loc, string name, AstNode[] args, Type[] gens = null, bool is_method_call = false) : base(loc) {
+        public FuncCall(Location loc, string name, AstNode[] args, Type[] gens = null) : base(loc) {
             this.name = name;
             arguments = args;
-            this.is_method_call = is_method_call;
             generics = gens ?? new Type[0];
         }
 
+        bool IsMethodCall() => method_caller != null;
+
         public FuncCall AsMethodCall(AstNode left_of_dot) {
-            return new AstNode.FuncCall(location, name, arguments.Prepend(left_of_dot).ToArray(), is_method_call: true);
+            method_caller = left_of_dot;
+            return this;
         }
 
         public override string ToString() {
@@ -816,14 +818,14 @@ abstract class AstNode {
         }
 
         protected override void DeclareVariables(Scope scope, List<string> local_var_types) {
+            method_caller?.DeclareVariables(scope, local_var_types);
             foreach (var arg in arguments) arg.DeclareVariables(scope, local_var_types);
         }
 
-        FuncInfo GetFuncInfo(Scope scope) {
+        FuncInfo GetFuncInfo(Scope scope, Scope og_scope) {
             Name maybe_func;
-            if (is_method_call) {
-                AstNode parent_arg = arguments[0];
-                maybe_func = scope.GetClass(parent_arg, parent_arg.location).GetMember(name, location, scope);
+            if (IsMethodCall()) {
+                maybe_func = scope.GetClass(method_caller, method_caller.location).GetMember(name, location, scope);
             } else {
                 maybe_func = scope.LookUp(name, location);
             }
@@ -836,15 +838,13 @@ abstract class AstNode {
                 return null;
             }
 
-            Type parent_instance = null;
-            Type[] arg_types = Array.ConvertAll(arguments, arg => arg.GetType(scope));
-            if (is_method_call) {
-                arg_types = arg_types.Skip(1).ToArray(); // the class itself
-                parent_instance = getParentInstance(scope);
-            }
+            Type parent_instance = IsMethodCall() ? getParentInstance(og_scope) : null;
+            Type[] arg_types = Array.ConvertAll(arguments, arg => arg.GetType(og_scope));
             FuncInfo func_info = func.BestFit(arg_types, generics, scope, location, parent_instance);
 
             if (func_info == null) {
+                if (scope.parent != null) return GetFuncInfo(scope.parent, og_scope);
+
                 string types = string.Join<Type>("`, `", arg_types);
                 Umi.Crash($"Overload with types `{types}` does not exist for `{name}`", location);
             }
@@ -852,13 +852,15 @@ abstract class AstNode {
             return func_info;
         }
 
+        FuncInfo GetFuncInfo(Scope scope) => GetFuncInfo(scope, scope);
+
         // The type of the left side of the dot of method calls
-        Type getParentInstance(Scope scope) => arguments[0].GetType(scope);
+        Type getParentInstance(Scope scope) => method_caller.GetType(scope);
 
         public override Type GetType(Scope scope) {
             FuncInfo func_info = GetFuncInfo(scope);
             Type real_type = func_info.return_type.RealType(func_info.generics, generics);
-            if (!is_method_call) return real_type;
+            if (!IsMethodCall()) return real_type;
 
             Type parent_instance = getParentInstance(scope);
             var parent_class = scope.LookUpType(parent_instance.name, location);
@@ -868,6 +870,7 @@ abstract class AstNode {
 
         protected override void SetParent(AstNode parent) {
             base.SetParent(parent);
+            method_caller?.SetParent(this);
             foreach (var arg in arguments) arg.SetParent(this);
         }
 
@@ -875,7 +878,7 @@ abstract class AstNode {
             FuncInfo func_info = GetFuncInfo(scope);
 
             // If calling a method without `this`
-            if (!is_method_call && func_info is FuncInfo.Ord) {
+            if (!IsMethodCall() && func_info is FuncInfo.Ord) {
                 if (func_info.parent_class != null && !func_info.is_constructor) {
                     Output.WriteLine("ldarg 0");
                 }
@@ -887,10 +890,11 @@ abstract class AstNode {
 
             if (func_info.is_constructor) {
                 parent_instance = new Type(func_info.parent_class, Array.ConvertAll(generics, g => g.name));
-            } else if (is_method_call) {
+            } else if (IsMethodCall()) {
                 parent_instance = getParentInstance(scope);
             }
 
+            scope.GenLoadIl(method_caller, parent_instance, IsMethodCall());
             foreach (var arg in arguments) arg.GenIl(scope);
             func_info.GenIl(scope, generics, parent_instance);
         }
@@ -959,15 +963,17 @@ abstract class AstNode {
 
         public override void GenIl(Scope scope) {
             Name.Class cls = dot.GetClass(scope);
-            Name.Varish field = (Name.Varish)dot.GetVarish(cls, scope);
-            if (field is Name.Alias) Umi.Crash("Can not reassign alias", location);
+            Name.Varish varish = (Name.Varish)dot.GetVarish(cls, scope);
+            if (varish is Name.Alias) Umi.Crash("Can not reassign alias", location);
 
+            Name.Field field = (Name.Field)varish;
             value.ExpectType(dot.GetType(scope), scope);
             field.CheckCanAssign(this);
 
-            dot.parent.GenIl(scope);
+            Type parent_type = dot.parent.GetType(scope);
+            scope.GenLoadIl(dot.parent, parent_type, !field.is_static);
             value.GenIl(scope);
-            ((Name.Field)field).GenStoreIl(cls.members, location, dot.parent.GetType(scope));
+            field.GenStoreIl(cls.members, location, parent_type);
         }
     }
     
@@ -1336,8 +1342,11 @@ abstract class AstNode {
                 v.GenLoadIl(scope, null);
                 return;
             }
-            parent.GenIl(scope);
-            ((Name.Field)v).GenLoadIl(cls.members, location, parent.GetType(scope));
+
+            var field = (Name.Field)v;
+            Type parent_type = parent.GetType(scope);
+            scope.GenLoadIl(parent, parent_type, !field.is_static);
+            field.GenLoadIl(cls.members, location, parent_type);
         }
     }
 
@@ -1523,6 +1532,7 @@ class Type {
     public static Type INT = new Type("Int");
     public static Type CHAR = new Type("Char");
     public static Type BOOL = new Type("Bool");
+    public static Type STRUCT = new Type("Struct");
 }
 
 class Output {
@@ -1668,6 +1678,7 @@ abstract class Name {
         public Varish(Location defined_at) : base(defined_at) {}
         public abstract Type GetType(Scope scope);
         public abstract void GenLoadIl(Scope scope, AstNode.Identifier context);
+        public abstract void GenAddressIl(Scope scope, AstNode.Identifier context);
         public abstract void CheckCanAssign(AstNode assignment);
         public virtual void GenStoreIl(Scope scope, Location loc, AstNode value) => value.GenIl(scope);
     }
@@ -1698,12 +1709,16 @@ abstract class Name {
 
         public override Type GetType(Scope _) => type;
 
-        public override void GenLoadIl(Scope _, AstNode.Identifier context) {
+        void GenLoadIl(AstNode.Identifier context, string arg, string local) {
             if (defined_at > context.location) {
                 Umi.Crash($"Can not use variable `{context.content}` before it is defined", context.location);
             }
-            Output.WriteLine($"{(is_param ? "ldarg" : "ldloc")} {index}");
+            Output.WriteLine($"{(is_param ? arg : local)} {index}");
         }
+
+        public override void GenLoadIl(Scope _, AstNode.Identifier context) => GenLoadIl(context, "ldarg", "ldloc");
+        
+        public override void GenAddressIl(Scope scope, AstNode.Identifier context) => GenLoadIl(context, "ldarga", "ldloca");
 
         public override void GenStoreIl(Scope scope, Location loc, AstNode value) {
             base.GenStoreIl(scope, loc, value);
@@ -1716,6 +1731,7 @@ abstract class Name {
         public Alias(Location defined_at, AstNode node) : base(defined_at) => this.node = node;
         public override Type GetType(Scope scope) => node.GetType(scope);
         public override void GenLoadIl(Scope scope, AstNode.Identifier _) => node.GenIl(scope);
+        public override void GenAddressIl(Scope _, AstNode.Identifier ctx) => Umi.Crash("Aliases do not have an address", ctx.location);
         public override void CheckCanAssign(AstNode a) => Umi.Crash("Can not reassign alias", a.location);
     }
 
@@ -1725,7 +1741,7 @@ abstract class Name {
         readonly string name;
         readonly string il_name;
         readonly Type parent_class; // only use the generics when used without `this`
-        readonly bool is_static;
+        public readonly bool is_static;
 
         public Field(Location defined_at, Type type, string name, Type pc, bool mutable, bool stati, string il_name) : base(defined_at) {
             this.type = type;
@@ -1764,6 +1780,11 @@ abstract class Name {
         public override void GenLoadIl(Scope scope, AstNode.Identifier context) {
             if (!is_static) Output.WriteLine("ldarg 0");
             GenLoadIl(scope, context.location, parent_class);
+        }
+
+        // TODO: check if this works (most likely doesn't)
+        public override void GenAddressIl(Scope scope, AstNode.Identifier context) {
+            GenInstructionIl(scope, context.location, "ldflda", parent_class);
         }
     }
 
@@ -1933,6 +1954,23 @@ class Scope {
         }
 
         func.functions.Add(func_info);
+    }
+
+    // ldloc, ldloca, ldarg, ldarga, etc. for fields and methods
+    public void GenLoadIl(AstNode parent, Type parent_type, bool do_load) {
+        if (!do_load) return;
+
+        if(!TypesMatch(Type.STRUCT, parent_type, parent.location)) {
+            parent.GenIl(this);
+            return;
+        }
+
+        if (!(parent is AstNode.Identifier)) Umi.Crash("Using struct fields can only be done on variables", parent.location);
+        
+        var identifier = (AstNode.Identifier)parent;
+        Name p = LookUp(identifier.content, identifier.location);
+        if (!(p is Name.Varish)) return;
+        ((Name.Varish)p).GenAddressIl(this, identifier);
     }
 }
 

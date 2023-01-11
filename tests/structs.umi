@@ -1,0 +1,39 @@
+class Thing : Struct {
+    mut Int number
+    Int other
+
+    static String sep
+
+    Thing(Int n, Int o) {
+        number = n
+        other = o
+    }
+
+    static Thing() { sep = ", " }
+
+    Void print() {
+        print(number.toString() + sep + other.toString())
+    }
+
+    static Void staticMethod() { print("Static methods work as well") }
+}
+
+Void add1AndPrint(Thing thing) {
+    thing.number = thing.number + 1
+    thing.print()
+}
+
+Void main() {
+    Thing thing = Thing(6, 5)
+    thing.number = 10
+
+    add1AndPrint(thing) # This does not modify thing since it is passed by value
+    thing.print()
+
+    print(Thing.sep)
+    Thing.staticMethod()
+
+    # You can assign a variable to itself in its definition to make it the default values
+    Thing thing2 = thing2
+    thing2.print()
+}
