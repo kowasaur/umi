@@ -630,9 +630,10 @@ abstract class Grammar {
 
         var IL_CLASS_STMTS = NewStatements("IL_CLASS_STMTS", new Grammar[] {IL_FIELD, IL_FUNC, ALIAS});
         var IL_CLASS_BLOCK = NewBlock("IL_CLASS_BLOCK", IL_CLASS_STMTS);
-        var IL_CLASS = new Pattern("IL_CLASS", new Grammar[] {IL, CLASS, IDENTIFIER, GENERICS, STRING, IL_CLASS_BLOCK}, (loc, nodes) => {
-            string il = ValueText(nodes[4]);
-            return new AstNode.IlClass(loc, ValueText(nodes[2]), il, (AstNode.Statements)nodes[5], null, GenericsArray(nodes[3]));
+        var IL_CLASS = new Pattern("IL_CLASS", new Grammar[] {IL, CLASS, IDENTIFIER, GENERICS, INHERIT, STRING, IL_CLASS_BLOCK}, (loc, nodes) => {
+            string il = ValueText(nodes[5]);
+            var statements = (AstNode.Statements)nodes[6];
+            return new AstNode.IlClass(loc, ValueText(nodes[2]), il, statements, MaybeValueText(nodes[4]), GenericsArray(nodes[3]));
         });
 
         var INCLUDE = new Pattern("INCLUDE", new Grammar[] {new Tok(Token.Type.INCLUDE), STRING}, 

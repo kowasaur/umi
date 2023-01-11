@@ -1,3 +1,5 @@
+include "./tests/structs.cs"
+
 class Thing : Struct {
     mut Int number
     Int other
@@ -23,6 +25,11 @@ Void add1AndPrint(Thing thing) {
     thing.print()
 }
 
+il class Rectangle : Struct "Rectangle" {
+    ils mut Int length "length"
+    ils mut Int width "width"
+}
+
 Void main() {
     Thing thing = Thing(6, 5)
     thing.number = 10
@@ -36,4 +43,9 @@ Void main() {
     # You can assign a variable to itself in its definition to make it the default values
     Thing thing2 = thing2
     thing2.print()
+
+    Rectangle rect = rect
+    rect.length = 7
+    rect.width = 4
+    print("Area: " + (rect.length * rect.width).toString())
 }
