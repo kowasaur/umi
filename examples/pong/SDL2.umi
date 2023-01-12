@@ -1,0 +1,72 @@
+include "SDL2.cs"
+
+il class Pointer "native int" {}
+il class UInt : Int "unsigned int32" { il UInt(Int) "" }
+il class Byte : Int "unsigned int8" { il Byte(Int) "" }
+
+il class SDL_WindowFlags "SDL2.SDL/SDL_WindowFlags" {
+    il SDL_WindowFlags(Int) ""
+    alias SHOWN = SDL_WindowFlags(0x00000004)
+}
+
+il class SDL_RendererFlags "SDL2.SDL/SDL_RendererFlags" {
+    il SDL_RendererFlags(Int) ""
+    alias ACCELERATED = SDL_RendererFlags(0x00000002)
+}
+
+il class SDL_EventType "SDL2.SDL/SDL_EventType" {
+    il SDL_EventType(Int) ""
+    alias QUIT = SDL_EventType(0x100)
+    alias KEYDOWN = SDL_EventType(0x300)
+}
+
+il Bool ==(SDL_EventType, SDL_EventType) "ceq"
+
+il class SDL_Event : Struct "SDL2.SDL/SDL_Event" {
+    ils SDL_EventType type "'type'"
+}
+
+il class SDL_Rect : Struct "SDL2.SDL/SDL_Rect" {
+    ils mut Int x "x"
+    ils mut Int y "y"
+    ils mut Int w "w"
+    ils mut Int h "h"
+}
+
+il class SDL "SDL2.SDL" {
+    # Init flags
+    alias INIT_VIDEO = UInt(0x20)
+
+    # The UInt is the init flags
+    # Returns 0 on success and negative on failure
+    ils static Int init(UInt) "SDL_Init"
+
+    ils static Void quit() "SDL_Quit"
+
+    alias WINDOWPOS_UNDEFINED =	0x1FFF0000
+    alias WINDOWPOS_CENTERED = 0x2FFF0000
+
+    ils static Pointer createWindow(String, Int, Int, Int, Int, SDL_WindowFlags) "SDL_CreateWindow"
+    ils static Void destroyWindow(Pointer) "SDL_DestroyWindow"
+
+    ils static Pointer createRenderer(Pointer, Int, SDL_RendererFlags) "SDL_CreateRenderer"
+    ils static Void destroyRenderer(Pointer) "SDL_DestroyRenderer"
+
+    ils static Int setRenderDrawColor(Pointer, Byte, Byte, Byte, Byte) "SDL_SetRenderDrawColor"
+    ils static Int renderFillRect(Pointer, Ref[SDL_Rect]) "SDL_RenderFillRect"
+    ils static Int renderClear(Pointer) "SDL_RenderClear"
+    ils static Void renderPresent(Pointer) "SDL_RenderPresent"
+
+    alias SCANCODE_DOWN = 81
+    alias SCANCODE_UP = 82
+
+    # The Int is the array size
+    ils static Pointer getKeyboardState(Ref[Int]) "SDL_GetKeyboardState"
+
+    ils static Int pollEvent(Ref[SDL_Event]) "SDL_PollEvent"
+
+    # Wait the specified number of milliseconds
+    ils static Void delay(UInt) "SDL_Delay"
+}
+
+ils Void marshalCopy(Pointer, Array[Byte], Int, Int) "[mscorlib]System.Runtime.InteropServices.Marshal::Copy"

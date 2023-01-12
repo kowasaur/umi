@@ -1,0 +1,52 @@
+include "SDL2.umi"
+
+alias WINDOW_WIDTH = 1000
+alias WINDOW_HEIGHT = 800
+alias PADDLE_HEIGHT = 150
+
+Void main() {
+    if SDL.init(SDL.INIT_VIDEO) < 0 {
+        print("Video initialisation failed")
+        exit(1)
+    }
+
+    Pointer window = SDL.createWindow("Pong", SDL.WINDOWPOS_CENTERED, SDL.WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WindowFlags.SHOWN)
+
+    Pointer renderer = SDL.createRenderer(window, -1, SDL_RendererFlags.ACCELERATED)
+
+    mut SDL_Rect paddle = paddle
+    paddle.x = 30
+    paddle.y = WINDOW_HEIGHT / 2 - PADDLE_HEIGHT / 2
+    paddle.w = 20
+    paddle.h = PADDLE_HEIGHT
+
+    mut Bool quit = false
+    while !quit {
+        mut SDL_Event e = e
+        while SDL.pollEvent(ref e) > 0 {
+            if e.type == SDL_EventType.QUIT { quit = true }
+            else if e.type == SDL_EventType.KEYDOWN {
+                mut Int array_size = 0
+                Pointer keys_ptr = SDL.getKeyboardState(ref array_size)
+                Array[Byte] pressed_keys = Array[Byte](array_size)
+                marshalCopy(keys_ptr, pressed_keys, 0, array_size)
+
+                if pressed_keys.get(SDL.SCANCODE_UP) == 1 {
+                    paddle.y = paddle.y - 20
+                } else if pressed_keys.get(SDL.SCANCODE_DOWN) == 1 {
+                    paddle.y = paddle.y + 20
+                }
+            }
+        }
+
+        SDL.setRenderDrawColor(renderer, Byte(0), Byte(0), Byte(0), Byte(255))
+        SDL.renderClear(renderer)
+        SDL.setRenderDrawColor(renderer, Byte(255), Byte(255), Byte(255), Byte(255))
+        SDL.renderFillRect(renderer, ref paddle)
+        SDL.renderPresent(renderer)
+    }
+
+    SDL.destroyRenderer(renderer)
+    SDL.destroyWindow(window)
+    SDL.quit()
+}
