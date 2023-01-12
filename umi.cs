@@ -939,8 +939,11 @@ abstract class AstNode {
 
         public override void GenIl(Scope scope) {
             Name n = scope.LookUp(variable.content, variable.location);
-            if (n is Name.Varish) ((Name.Varish)n).GenAddressIl(scope, variable);
-            else Umi.Crash("`ref` can only be used on variables", location);
+            if (!(n is Name.Varish)) Umi.Crash("`ref` can only be used on variables", location);
+
+            var v = (Name.Varish)n;
+            if (!v.is_mutable) Umi.Crash("`ref` cannot be used on immutable variables", location);
+            v.GenAddressIl(scope, variable);
         }
     }
 
@@ -1699,7 +1702,8 @@ abstract class Name {
 
     // Var or Alias
     public abstract class Varish : Name {
-        public Varish(Location defined_at) : base(defined_at) {}
+        public readonly bool is_mutable;
+        public Varish(Location defined_at, bool is_mutable) : base(defined_at) => this.is_mutable = is_mutable;
         public abstract Type GetType(Scope scope);
         public abstract void GenLoadIl(Scope scope, AstNode.Identifier context);
         public abstract void GenAddressIl(Scope scope, AstNode.Identifier context);
@@ -1711,13 +1715,11 @@ abstract class Name {
         public readonly Type type;
         public readonly int index;
         readonly bool is_param; // local variable or parameter
-        readonly bool is_mutable;
 
-        public Var(Type type, bool is_param, int index, Location defined_at, bool mutable = false) : base(defined_at) {
+        public Var(Type type, bool is_param, int index, Location defined_at, bool mutable = false) : base(defined_at, mutable) {
             this.type = type;
             this.is_param = is_param;
             this.index = index;
-            is_mutable = mutable;
         }
 
         public override void CheckCanAssign(AstNode assignment) {
@@ -1752,7 +1754,7 @@ abstract class Name {
 
     public class Alias : Varish {
         public AstNode node;
-        public Alias(Location defined_at, AstNode node) : base(defined_at) => this.node = node;
+        public Alias(Location defined_at, AstNode node) : base(defined_at, false) => this.node = node;
         public override Type GetType(Scope scope) => node.GetType(scope);
         public override void GenLoadIl(Scope scope, AstNode.Identifier _) => node.GenIl(scope);
         public override void GenAddressIl(Scope _, AstNode.Identifier ctx) => Umi.Crash("Aliases do not have an address", ctx.location);
@@ -1761,17 +1763,16 @@ abstract class Name {
 
     public class Field : Varish {
         readonly Type type;
-        public readonly bool is_mutable;
         readonly string name;
         readonly string il_name;
         readonly Type parent_class; // only use the generics when used without `this`
         public readonly bool is_static;
 
-        public Field(Location defined_at, Type type, string name, Type pc, bool mutable, bool stati, string il_name) : base(defined_at) {
+        public Field(Location defined_at, Type type, string name, Type pc, bool mutable, bool stati, string il_name) 
+        : base(defined_at, mutable) {
             this.type = type;
             this.name = name;
             this.parent_class = pc;
-            is_mutable = mutable;
             is_static = stati;
             this.il_name = il_name;
         }
