@@ -168,6 +168,10 @@ class Lexer {
                         type = Token.Type.OPERATOR;
                         value = "as";
                         break;
+                    case "ref":
+                        type = Token.Type.OPERATOR;
+                        value = "ref";
+                        break;
                     case "include":
                         type = Token.Type.INCLUDE;
                         break;
@@ -455,7 +459,9 @@ abstract class Grammar {
         });
         var PREFIX = new Pattern("PREFIX", new Grammar[] {OPERATOR, TERM}, (loc, nodes) => {
             string name = ValueText(nodes[0]);
-            return new AstNode.FuncCall(loc, name, new AstNode[] {new AstNode.Nothing(), nodes[1]});
+            if (name != "ref") return new AstNode.FuncCall(loc, name, new AstNode[] {new AstNode.Nothing(), nodes[1]});
+            if (!(nodes[1] is AstNode.Identifier)) Umi.Crash("`ref` can only be used on variables", loc);
+            return new AstNode.Ref(loc, (AstNode.Identifier)nodes[1]);
         });
         var UNARY = OneOf("UNARY", new Grammar[] {POSTFIX, PREFIX});
 
@@ -830,7 +836,7 @@ abstract class AstNode {
         FuncInfo GetFuncInfo(Scope scope, Scope og_scope) {
             Name maybe_func;
             if (IsMethodCall()) {
-                maybe_func = scope.GetClass(method_caller, method_caller.location).GetMember(name, location, scope);
+                maybe_func = og_scope.GetClass(method_caller, method_caller.location).GetMember(name, location, og_scope);
             } else {
                 maybe_func = scope.LookUp(name, location);
             }
@@ -919,6 +925,22 @@ abstract class AstNode {
         public override void GenIl(Scope scope) {
             value.GenIl(scope);
             Output.WriteLine($"castclass {scope.GetIlType(type, location)}");
+        }
+    }
+
+    public class Ref : AstNode {
+        readonly Identifier variable;
+
+        public Ref(Location loc, Identifier variable) : base(loc) => this.variable = variable;
+
+        public override Type GetType(Scope scope) {
+            return new Type("Ref", new string[] {variable.GetType(scope).name});
+        }
+
+        public override void GenIl(Scope scope) {
+            Name n = scope.LookUp(variable.content, variable.location);
+            if (n is Name.Varish) ((Name.Varish)n).GenAddressIl(scope, variable);
+            else Umi.Crash("`ref` can only be used on variables", location);
         }
     }
 
@@ -1663,11 +1685,8 @@ abstract class Name {
                 if (!object.ReferenceEquals(parent_instance, null)) {
                     var parent_class = scope.LookUpType(parent_instance.name, loc) as Name.Class;
                     if (parent_class != null) {
-                        for (int g = 0; g < parent_class.generics.Length; g++) {
-                            Generic gen = parent_class.generics[g];
-                            for (int t = 0; t < types.Length; t++) {
-                                if (gen.name == func_info.param_types[t].name) correct_types[t] = new Type(parent_instance.generics[g]);
-                            }
+                        for (int t = 0; t < types.Length; t++) {
+                            correct_types[t] = correct_types[t].RealType(parent_instance, parent_class);
                         }
                     }
                 }

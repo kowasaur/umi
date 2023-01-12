@@ -18,6 +18,11 @@ Void main() {
     dict.set("gold", 9)
     print(dict.get("gold"))
     print(dict.get("bronze"))
+    Int returned = -1
+    print(dict.tryGetValue("silver", ref returned))
+    print(returned) # default Int value of 0
+    print(dict.tryGetValue("gold", ref returned))
+    print(returned) # 9
     
     Set[Char] set = Set[Char]()
     # the brackets exist because unary operators have higher precedence than binary operators

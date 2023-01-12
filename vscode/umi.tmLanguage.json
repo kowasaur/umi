@@ -5,13 +5,13 @@
         { "include": "#comments" },
         { "include": "#keywords" },
         { "include": "#booleans" },
+        { "include": "#operators" },
         { "include": "#classes" },
         { "include": "#functions" },
         { "include": "#variables" },
         { "include": "#strings" },
         { "include": "#characters" },
-        { "include": "#numbers" },
-        { "include": "#operators" }
+        { "include": "#numbers" }
     ],
     "repository": {
         "comments": { "name": "comment.line.number-sign", "begin": "#", "end": "\n" },
@@ -83,7 +83,7 @@
         },
         "operators": {
             "name": "keyword.operator",
-            "match": "[.=+\\-*\\/%|&><!]+|\\bas\\b"
+            "match": "[.=+\\-*\\/%|&><!]+|\\bas\\b|\\bref\\b"
         }
     },
     "scopeName": "source.umi"

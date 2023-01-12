@@ -2,6 +2,7 @@
 
 il class Void "void" {}
 il class Struct "[mscorlib]System.ValueType" {}
+il class Ref[T] "{0}&" {}
 il class Bool "bool" {}
 
 il class Int "int32" {
@@ -54,6 +55,7 @@ il class Dict[K, V] "class [mscorlib]System.Collections.Generic.Dictionary`2<{0}
     il Dict[K, V]() "newobj void class [mscorlib]System.Collections.Generic.Dictionary`2<{0}, {1}>::.ctor()"
     ils V get(K) "get_Item"
     ils Void set(K, V) "set_Item"
+    ils Bool tryGetValue(K, Ref[V]) "TryGetValue"
 }
 
 il class Set[T] "class [System.Core]System.Collections.Generic.HashSet`1<{0}>" {
