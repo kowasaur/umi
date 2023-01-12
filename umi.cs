@@ -1024,14 +1024,19 @@ abstract class AstNode {
         public override Type GetType(Scope scope) => statements.Length == 0 ? Type.VOID : statements.Last().GetType(scope);
 
         public override void GenIl(Scope scope) { 
-            foreach (var stmt in statements) stmt.GenIl(scope);
+            foreach (var stmt in statements.SkipLast(1)) {
+                stmt.GenIl(scope);
+                if (stmt.GetType(scope) != Type.VOID) Output.WriteLine("pop");
+            }
+            // This means if the last statement of what should be Void is not Void,
+            // it will have to be discarded manually somehow (probably best to assign to a variable)
+            if (statements.Length > 0) statements.Last().GenIl(scope);
         }
 
-        // Check everything except last statement is Void
-        // Assumes the last statement will be checked elsewhere
-        public void GenIlAndTypeCheck(Scope scope) {
-            foreach (var stmt in statements.SkipLast(1)) stmt.ExpectType(Type.VOID, scope);
-            GenIl(scope);
+        // Because FuncDefs inherit Block rather than have it, the type is the return type
+        // so this messes up classes if they don't use this function
+        public void GenIlNoPop(Scope scope) {
+            foreach (var stmt in statements) stmt.GenIl(scope);
         }
     }
 
@@ -1052,7 +1057,7 @@ abstract class AstNode {
             block_scope = SubScope(scope, local_var_types, statements.statements);
         }
 
-        protected void GenStatements() => statements.GenIlAndTypeCheck(block_scope);
+        protected void GenStatements() => statements.GenIl(block_scope);
         
         protected override void SetParent(AstNode parent) {
             base.SetParent(parent);
@@ -1115,7 +1120,7 @@ abstract class AstNode {
             string else_end = else_statements.end.Label();
             Output.WriteLine($"br {else_end}");
             Output.WriteLabel(if_end);
-            else_statements.GenIlAndTypeCheck(else_scope);
+            else_statements.GenIl(else_scope);
             Output.WriteLabel(else_end);
         }
     }
@@ -1462,7 +1467,7 @@ abstract class AstNode {
             Output.WriteLine($".class {name}{Name.Generic.GenericsString(generics)}{extends}");
             Output.WriteLine("{");
             Output.Indent();
-            statements.GenIl(class_scope);
+            statements.GenIlNoPop(class_scope);
             Output.Unindent();
             Output.WriteLine("}\n");
         }

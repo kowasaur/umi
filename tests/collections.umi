@@ -1,7 +1,3 @@
-# TODO: Put this in std.umi and make work for everything
-# Same as discard statement in Nim
-il Void />(Bool, Void) "pop"
-
 Void main() {
     List[String] list = List[String]()
     list.add("bruh")
@@ -25,14 +21,12 @@ Void main() {
     print(returned) # 9
     
     Set[Char] set = Set[Char]()
-    # the brackets exist because unary operators have higher precedence than binary operators
-    # TODO: change the parser so the brackets aren't required
-    (set.add('b'))/>
-    (set.add('%'))/>
+    set.add('b')
+    set.add('%')
     print(set.size())
     print(set.contains('b'))
     print(set.contains('%'))
     print(set.contains('B'))
-    (set.remove('%'))/>
+    set.remove('%')
     print(set.contains('%'))
 }
