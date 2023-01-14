@@ -1,8 +1,14 @@
-include "SDL2.cs"
+include "-unsafe SDL2.cs SDL2_ttf.cs"
 
-il class Pointer "native int" {}
 il class UInt : Int "unsigned int32" { il UInt(Int) "" }
 il class Byte : Int "unsigned int8" { il Byte(Int) "" }
+
+il class Pointer "native int" {
+    # TODO: convert to il field
+    il static Pointer null() "ldsfld native int [mscorlib]System.IntPtr::Zero"
+}
+
+ils Bool ==(Pointer, Pointer) "native int::op_Equality"
 
 il class SDL_WindowFlags "SDL2.SDL/SDL_WindowFlags" {
     il SDL_WindowFlags(Int) ""
@@ -33,7 +39,16 @@ il class SDL_Rect : Struct "SDL2.SDL/SDL_Rect" {
     ils mut Int h "h"
 }
 
+il class SDL_Color : Struct "SDL2.SDL/SDL_Color" {
+    ils mut Byte r "r"
+    ils mut Byte g "g"
+    ils mut Byte b "b"
+    ils mut Byte a "a"
+}
+
 il class SDL "SDL2.SDL" {
+    ils static String getError() "SDL_GetError"
+
     # Init flags
     alias INIT_VIDEO = UInt(0x20)
 
@@ -55,8 +70,16 @@ il class SDL "SDL2.SDL" {
     ils static Int setRenderDrawColor(Pointer, Byte, Byte, Byte, Byte) "SDL_SetRenderDrawColor"
     ils static Int renderFillRect(Pointer, Ref[SDL_Rect]) "SDL_RenderFillRect"
     ils static Int renderClear(Pointer) "SDL_RenderClear"
+    ils static Int renderCopy(Pointer, Pointer, Pointer, Ref[SDL_Rect]) "SDL_RenderCopy"
     ils static Void renderPresent(Pointer) "SDL_RenderPresent"
 
+    ils static Pointer createTextureFromSurface(Pointer, Pointer) "SDL_CreateTextureFromSurface"
+    ils static Void destroyTexture(Pointer) "SDL_DestroyTexture"
+
+    ils static Void freeSurface(Pointer) "SDL_FreeSurface"
+
+    alias SCANCODE_S = 22
+    alias SCANCODE_W = 26
     alias SCANCODE_DOWN = 81
     alias SCANCODE_UP = 82
 
@@ -67,6 +90,14 @@ il class SDL "SDL2.SDL" {
 
     # Wait the specified number of milliseconds
     ils static Void delay(UInt) "SDL_Delay"
+}
+
+il class TTF "SDL2.SDL_ttf" {
+    ils static Int init() "TTF_Init"
+    ils static Void quit() "TTF_Quit"
+
+    ils static Pointer openFont(String, Int) "TTF_OpenFont"
+    ils static Pointer renderTextSolid(Pointer, String, SDL_Color) "TTF_RenderText_Solid"
 }
 
 ils Void marshalCopy(Pointer, Array[Byte], Int, Int) "[mscorlib]System.Runtime.InteropServices.Marshal::Copy"

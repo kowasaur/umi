@@ -3,6 +3,98 @@ include "SDL2.umi"
 alias WINDOW_WIDTH = 1000
 alias WINDOW_HEIGHT = 800
 alias PADDLE_HEIGHT = 150
+alias PADDLE_PADDING = 30
+alias PADDLE_WIDTH = 20
+
+class Paddle {
+    mut SDL_Rect rect
+    Int up_scancode
+    Int down_scancode
+    Int score
+    Text score_text
+
+    Paddle(Int x, Int up_scancode, Int down_scancode, Int text_pos, Pointer renderer) {
+        rect.x = x
+        rect.y = WINDOW_HEIGHT / 2 - PADDLE_HEIGHT / 2
+        rect.w = PADDLE_WIDTH
+        rect.h = PADDLE_HEIGHT
+        this.up_scancode = up_scancode
+        this.down_scancode = down_scancode
+        score_text = Text(text_pos - 50, 20, "0", renderer)
+    }
+
+    Void handleKeys(Array[Byte] pressed_keys) {
+        mut Int change = 0
+
+        if pressed_keys.get(up_scancode) == 1 { change = change - 2 }
+        if pressed_keys.get(down_scancode) == 1 { change = change + 2 }
+
+        rect.y = clamp(rect.y + change, 0, WINDOW_HEIGHT - PADDLE_HEIGHT)
+    }
+
+    Void render(Pointer renderer) {
+        SDL.renderFillRect(renderer, ref rect)
+        score_text.render(renderer)
+    }
+}
+
+class Text {
+    Pointer surface
+    Pointer texture
+    mut SDL_Rect rect
+
+    Text(Int x, Int y, String inital_text, Pointer renderer) {
+        rect.x = x
+        rect.y = y
+        rect.w = 100
+        rect.h = 100
+
+        surface = TTF.renderTextSolid(FONT, inital_text, WHITE)
+        texture = SDL.createTextureFromSurface(renderer, surface)
+    }
+
+    Void render(Pointer renderer) {
+        handleError(SDL.renderCopy(renderer, texture, Pointer.null(), ref rect))
+    }
+
+    static Pointer FONT
+    static SDL_Color WHITE
+
+    static Text() {
+        TTF.init()
+        FONT = TTF.openFont("FFF_Forward.ttf", 24)
+        WHITE.r = Byte(255)
+        WHITE.g = Byte(255)
+        WHITE.b = Byte(255)
+    }
+}
+
+Void handleError(Int status) {
+    if status < 0 {
+        print(SDL.getError())
+        exit(status)
+    }
+}
+
+Array[Byte] getPressedKeys() {
+    mut Int array_size = 0
+    Pointer keys_ptr = SDL.getKeyboardState(ref array_size)
+    Array[Byte] pressed_keys = Array[Byte](array_size)
+    marshalCopy(keys_ptr, pressed_keys, 0, array_size)
+    pressed_keys
+}
+
+Void drawMiddleLine(Pointer renderer) {
+    mut SDL_Rect line = line
+    line.x = WINDOW_WIDTH / 2 - 1
+    line.y = 3
+    line.w = 2
+    line.h = 15
+    while line.y < WINDOW_HEIGHT {
+        Int err = SDL.renderFillRect(renderer, ref line)
+        line.y = line.y + 30
+    }
+}
 
 Void main() {
     if SDL.init(SDL.INIT_VIDEO) < 0 {
@@ -14,39 +106,38 @@ Void main() {
 
     Pointer renderer = SDL.createRenderer(window, -1, SDL_RendererFlags.ACCELERATED)
 
-    mut SDL_Rect paddle = paddle
-    paddle.x = 30
-    paddle.y = WINDOW_HEIGHT / 2 - PADDLE_HEIGHT / 2
-    paddle.w = 20
-    paddle.h = PADDLE_HEIGHT
+    Paddle left_paddle = Paddle(PADDLE_PADDING, SDL.SCANCODE_W, SDL.SCANCODE_S, WINDOW_WIDTH / 4, renderer)
+    Int right_paddle_x = WINDOW_WIDTH - PADDLE_PADDING - PADDLE_WIDTH
+    Paddle right_paddle = Paddle(right_paddle_x, SDL.SCANCODE_UP, SDL.SCANCODE_DOWN, 3 * WINDOW_WIDTH / 4, renderer)
+
+    Text test_text = Text(WINDOW_WIDTH / 4 - 50, 20, "0", renderer)
 
     mut Bool quit = false
     while !quit {
         mut SDL_Event e = e
         while SDL.pollEvent(ref e) > 0 {
             if e.type == SDL_EventType.QUIT { quit = true }
-            else if e.type == SDL_EventType.KEYDOWN {
-                mut Int array_size = 0
-                Pointer keys_ptr = SDL.getKeyboardState(ref array_size)
-                Array[Byte] pressed_keys = Array[Byte](array_size)
-                marshalCopy(keys_ptr, pressed_keys, 0, array_size)
-
-                if pressed_keys.get(SDL.SCANCODE_UP) == 1 {
-                    paddle.y = paddle.y - 20
-                } else if pressed_keys.get(SDL.SCANCODE_DOWN) == 1 {
-                    paddle.y = paddle.y + 20
-                }
-            }
         }
+
+        Array[Byte] pressed_keys = getPressedKeys()
+        left_paddle.handleKeys(pressed_keys)
+        right_paddle.handleKeys(pressed_keys)
 
         SDL.setRenderDrawColor(renderer, Byte(0), Byte(0), Byte(0), Byte(255))
         SDL.renderClear(renderer)
+        # everything except background is white
         SDL.setRenderDrawColor(renderer, Byte(255), Byte(255), Byte(255), Byte(255))
-        SDL.renderFillRect(renderer, ref paddle)
+        drawMiddleLine(renderer)
+        left_paddle.render(renderer)
+        right_paddle.render(renderer)
+        test_text.render(renderer)
         SDL.renderPresent(renderer)
+
+        SDL.delay(UInt(3))
     }
 
     SDL.destroyRenderer(renderer)
     SDL.destroyWindow(window)
+    TTF.quit()
     SDL.quit()
 }

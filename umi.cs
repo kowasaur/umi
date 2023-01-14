@@ -1593,7 +1593,7 @@ class Output {
     // Compile the C# files and then put the il into the output
     public static void WriteCsIl() {
         foreach (string path in cs_paths) {
-            Umi.RunCommand("mcs", "-unsafe -out:temp_cs.dll -target:library " + path);
+            Umi.RunCommand("mcs", "-out:temp_cs.dll -target:library " + path);
             Umi.RunCommand("monodis", "--output=temp_cs.il temp_cs.dll");
             // ? not sure whether this will always work tbh with the version
             string necessary_il = File.ReadAllText("temp_cs.il").Split(".ver  0:0:0:0\n}")[1];
@@ -1812,9 +1812,9 @@ abstract class Name {
             GenLoadIl(scope, context.location, parent_class);
         }
 
-        // TODO: check if this works (most likely doesn't)
         public override void GenAddressIl(Scope scope, AstNode.Identifier context) {
-            GenInstructionIl(scope, context.location, "ldflda", parent_class);
+            if (!is_static) Output.WriteLine("ldarg 0");
+            GenInstructionIl(scope, context.location, is_static ? "ldsflda" : "ldflda", parent_class);
         }
     }
 

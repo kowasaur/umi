@@ -156,3 +156,5 @@ Array[Int] ...(Int low, Int high) {
     }
     range
 }
+
+ils Int clamp(Int, Int, Int) "[mscorlib]System.Math::Clamp"
