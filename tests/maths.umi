@@ -1,3 +1,5 @@
+include "math.umi" # in std
+
 Void main() {
     Int plus = 9 + 10
     Int minus = plus - 3
@@ -14,4 +16,6 @@ Void main() {
     print(-100 + 2)
 
     print(0xDEAD)
+    print(2.1f / 3.2f)
+    print(sqrt(PI ** 2.))
 }

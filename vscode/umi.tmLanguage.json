@@ -79,7 +79,7 @@
         },
         "numbers": {
             "name": "constant.numeric",
-            "match": "0x[\\dABCDEF]+|\\d+"
+            "match": "0x[\\dABCDEF]+|\\d+(\\.\\d*f?)?"
         },
         "operators": {
             "name": "keyword.operator",

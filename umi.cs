@@ -44,7 +44,7 @@ class Token {
     public enum Type {
         NOTHING, // for error reporting
         IDENTIFIER, OPERATOR,
-        STRING, CHAR, INTEGER, BOOLEAN,
+        STRING, CHAR, INTEGER, FLOAT, DOUBLE, BOOLEAN,
         LPARAN, RPARAN, LCURLY, RCURLY, LSQUARE, RSQUARE,
         NEWLINE, COMMA, EQUAL, COLON,
         IL, ILS, ALIAS, CLASS, MUT, STATIC,
@@ -185,6 +185,13 @@ class Lexer {
                 value = ConsumeWhile(c, Char.IsDigit);
                 if (file[i + 1] == 'x') {
                     value += ConsumeWhile(NextChar(), ch => Char.IsDigit(ch) || ('A' <= ch && ch <= 'F'));
+                } else if (file[i + 1] == '.') {
+                    value += ConsumeWhile(NextChar(), Char.IsDigit);
+                    type = Token.Type.DOUBLE;
+                    if (file[i + 1] == 'f') {
+                        Increment();
+                        type = Token.Type.FLOAT;
+                    }
                 }
             } else if (IsOperatorChar(c)) {
                 string content = ConsumeWhile(c, IsOperatorChar);
@@ -438,6 +445,12 @@ abstract class Grammar {
         var INTEGER = new Pattern("INTEGER", new Grammar[] {new Tok(Token.Type.INTEGER)}, 
             (_, nodes) => new AstNode.IntegerLiteral((AstNode.Tok)nodes[0])
         );
+        var FLOAT = new Pattern("FLOAT", new Grammar[] {new Tok(Token.Type.FLOAT)}, 
+            (_, nodes) => new AstNode.FloatLiteral((AstNode.Tok)nodes[0])
+        );
+        var DOUBLE = new Pattern("DOUBLE", new Grammar[] {new Tok(Token.Type.DOUBLE)}, 
+            (_, nodes) => new AstNode.DoubleLiteral((AstNode.Tok)nodes[0])
+        );
         var BOOLEAN = new Pattern("BOOLEAN", new Grammar[] {new Tok(Token.Type.BOOLEAN)},
             (_, nodes) => new AstNode.BooleanLiteral((AstNode.Tok)nodes[0])
         );
@@ -451,7 +464,7 @@ abstract class Grammar {
         var SUBEXPRESSION = new Pattern ("SUBEXPRESSION", new Grammar[] {LPARAN, null, RPARAN}, (_, nodes) => nodes[1]);
 
         // A single term in an expresion
-        var TERM = OneOf("TERM", new Grammar[] {STRING, CHAR, INTEGER, BOOLEAN, null, null, IDENTIFIER, SUBEXPRESSION});
+        var TERM = OneOf("TERM", new Grammar[] {STRING, CHAR, INTEGER, BOOLEAN, null, null, IDENTIFIER, SUBEXPRESSION, FLOAT, DOUBLE});
 
         var POSTFIX = new Pattern("POSTFIX", new Grammar[] {TERM, OPERATOR}, (loc, nodes) => {
             string name = ValueText(nodes[1]);
@@ -745,6 +758,18 @@ abstract class AstNode {
         public IntegerLiteral(Tok tok): base(tok) {}
         public override Type GetType(Scope _) => Type.INT;
         public override void GenIl(Scope _) => Output.WriteLine($"ldc.i4 {content}");
+    }
+
+    public class FloatLiteral : Value {
+        public FloatLiteral(Tok tok): base(tok) {}
+        public override Type GetType(Scope scope) => Type.FLOAT;
+        public override void GenIl(Scope _) => Output.WriteLine($"ldc.r4 {content}");
+    }
+
+    public class DoubleLiteral : Value {
+        public DoubleLiteral(Tok tok): base(tok) {}
+        public override Type GetType(Scope scope) => Type.DOUBLE;
+        public override void GenIl(Scope _) => Output.WriteLine($"ldc.r8 {content}");
     }
 
     public class BooleanLiteral : IntegerLiteral {
@@ -1565,6 +1590,8 @@ class Type {
     public static Type VOID = new Type("Void");
     public static Type STRING = new Type("String");
     public static Type INT = new Type("Int");
+    public static Type FLOAT = new Type("Float");
+    public static Type DOUBLE = new Type("Double");
     public static Type CHAR = new Type("Char");
     public static Type BOOL = new Type("Bool");
     public static Type STRUCT = new Type("Struct");

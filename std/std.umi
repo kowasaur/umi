@@ -89,6 +89,8 @@ ils Void print(Char) "[mscorlib]System.Console::WriteLine"
 ils Void print(Int) "[mscorlib]System.Console::WriteLine"
 ils Void print(Bool) "[mscorlib]System.Console::WriteLine"
 ils Void print(Long) "[mscorlib]System.Console::WriteLine"
+ils Void print(Float) "[mscorlib]System.Console::WriteLine"
+ils Void print(Double) "[mscorlib]System.Console::WriteLine"
 
 # TODO: somehow make this generic
 Void print(Array[String] array) {
@@ -117,6 +119,11 @@ il Long -(Long, Long) "sub"
 il Long *(Long, Long) "mul"
 il Long /(Long, Long) "div"
 il Long %(Long, Long) "rem"
+il Float +(Float, Float) "add"
+il Float -(Float, Float) "sub"
+il Float *(Float, Float) "mul"
+il Float /(Float, Float) "div"
+il Float %(Float, Float) "rem"
 
 # Comparison Operators
 ils Bool ==(String, String) "string::op_Equality"
