@@ -15,6 +15,13 @@ il class Long "int64" {
     il Int toInt() "conv.i4"
 }
 
+il class Float "float32" {
+    il Float(Int) "conv.r4"
+    il Float(Double) "conv.r4"
+}
+
+il class Double "float64" {}
+
 il class Char "char" {
     # `this` is the separator like in Python
     il String join(Array[String]) "call string string::Join(char, string[])"
@@ -156,5 +163,3 @@ Array[Int] ...(Int low, Int high) {
     }
     range
 }
-
-ils Int clamp(Int, Int, Int) "[mscorlib]System.Math::Clamp"

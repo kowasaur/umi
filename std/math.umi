@@ -1,0 +1,5 @@
+ils Int clamp(Int, Int, Int) "[mscorlib]System.Math::Clamp"
+
+ils Double sin(Double) "[mscorlib]System.Math::Sin"
+ils Double cos(Double) "[mscorlib]System.Math::Cos"
+ils Double tan(Double) "[mscorlib]System.Math::Tan"

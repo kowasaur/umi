@@ -67,7 +67,7 @@ class Lexer {
     public Lexer(string file_path) {
         string path = file_path;
         if (!File.Exists(file_path)) {
-            path = AppDomain.CurrentDomain.BaseDirectory + path; // path of exe
+            path = AppDomain.CurrentDomain.BaseDirectory + "std/" + path; // path of exe
             if (!File.Exists(path)) Umi.Exit(file_path + " does not exist");
         }
 
