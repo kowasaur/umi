@@ -1,41 +1,74 @@
+include "math.umi"
 include "SDL2.umi"
 
 alias WINDOW_WIDTH = 1000
 alias WINDOW_HEIGHT = 800
-alias PADDLE_HEIGHT = 150
-alias PADDLE_PADDING = 30
-alias PADDLE_WIDTH = 20
+alias WINDOW_WIDTH_F = Float(WINDOW_WIDTH)
+alias WINDOW_HEIGHT_F = Float(WINDOW_HEIGHT)
 
 class Paddle {
-    mut SDL_Rect rect
+    mut SDL_RectF rect
     Int up_scancode
     Int down_scancode
     Int score
     Text score_text
 
-    Paddle(Int x, Int up_scancode, Int down_scancode, Int text_pos, Pointer renderer) {
+    Paddle(Float x, Int up_scancode, Int down_scancode, Int text_pos, Pointer renderer) {
         rect.x = x
-        rect.y = WINDOW_HEIGHT / 2 - PADDLE_HEIGHT / 2
-        rect.w = PADDLE_WIDTH
-        rect.h = PADDLE_HEIGHT
+        rect.y = WINDOW_HEIGHT_F / 2.0f - HEIGHT / 2.0f
+        rect.w = WIDTH
+        rect.h = HEIGHT
         this.up_scancode = up_scancode
         this.down_scancode = down_scancode
         score_text = Text(text_pos - 50, 20, "0", renderer)
     }
 
     Void handleKeys(Array[Byte] pressed_keys) {
-        mut Int change = 0
+        mut Float change = 0.0f
 
-        if pressed_keys.get(up_scancode) == 1 { change = change - 2 }
-        if pressed_keys.get(down_scancode) == 1 { change = change + 2 }
+        if pressed_keys.get(up_scancode) == 1 { change = change - 2.0f }
+        if pressed_keys.get(down_scancode) == 1 { change = change + 2.0f }
 
-        rect.y = clamp(rect.y + change, 0, WINDOW_HEIGHT - PADDLE_HEIGHT)
+        rect = changeRectF(rect, 0.0f, change, WIDTH, HEIGHT)
     }
 
     Void render(Pointer renderer) {
-        SDL.renderFillRect(renderer, ref rect)
+        SDL.renderFillRectF(renderer, ref rect)
         score_text.render(renderer)
     }
+
+    alias WIDTH = 20.0f
+    alias HEIGHT = 150.0f
+    alias PADDING = 30.0f
+}
+
+class Ball {
+    mut SDL_RectF rect
+    mut Float velocity_x
+    mut Float velocity_y
+
+    Ball() {
+        rect.x = WINDOW_WIDTH_F / 2.0f - SIZE / 2.0f
+        rect.y = rect.x
+        rect.w = SIZE
+        rect.h = SIZE
+
+        Random rand = Random()
+        Double angle = rand.double() * TAU
+        velocity_x = SPEED * Float(cos(angle))
+        velocity_y = SPEED * Float(sin(angle))
+    }
+
+    Void move() {
+        rect = changeRectF(rect, velocity_x, velocity_y, SIZE, SIZE)
+    }
+
+    Void render(Pointer renderer) {
+        handleError(SDL.renderFillRectF(renderer, ref rect))
+    }
+
+    alias SIZE = 20.0f
+    alias SPEED = 1.0f
 }
 
 class Text {
@@ -76,6 +109,12 @@ Void handleError(Int status) {
     }
 }
 
+SDL_RectF changeRectF(SDL_RectF rect, Float change_x, Float change_y, Float obj_width, Float obj_height) {
+    rect.x = clamp(rect.x + change_x, 0.0f, WINDOW_WIDTH_F - obj_width)
+    rect.y = clamp(rect.y + change_y, 0.0f, WINDOW_HEIGHT_F - obj_height)
+    rect
+}
+
 Array[Byte] getPressedKeys() {
     mut Int array_size = 0
     Pointer keys_ptr = SDL.getKeyboardState(ref array_size)
@@ -106,11 +145,10 @@ Void main() {
 
     Pointer renderer = SDL.createRenderer(window, -1, SDL_RendererFlags.ACCELERATED)
 
-    Paddle left_paddle = Paddle(PADDLE_PADDING, SDL.SCANCODE_W, SDL.SCANCODE_S, WINDOW_WIDTH / 4, renderer)
-    Int right_paddle_x = WINDOW_WIDTH - PADDLE_PADDING - PADDLE_WIDTH
+    Paddle left_paddle = Paddle(Paddle.PADDING, SDL.SCANCODE_W, SDL.SCANCODE_S, WINDOW_WIDTH / 4, renderer)
+    Float right_paddle_x = WINDOW_WIDTH_F - Paddle.PADDING - Paddle.WIDTH
     Paddle right_paddle = Paddle(right_paddle_x, SDL.SCANCODE_UP, SDL.SCANCODE_DOWN, 3 * WINDOW_WIDTH / 4, renderer)
-
-    Text test_text = Text(WINDOW_WIDTH / 4 - 50, 20, "0", renderer)
+    Ball ball = Ball()
 
     mut Bool quit = false
     while !quit {
@@ -122,15 +160,18 @@ Void main() {
         Array[Byte] pressed_keys = getPressedKeys()
         left_paddle.handleKeys(pressed_keys)
         right_paddle.handleKeys(pressed_keys)
+        ball.move()
 
         SDL.setRenderDrawColor(renderer, Byte(0), Byte(0), Byte(0), Byte(255))
         SDL.renderClear(renderer)
+
         # everything except background is white
         SDL.setRenderDrawColor(renderer, Byte(255), Byte(255), Byte(255), Byte(255))
         drawMiddleLine(renderer)
         left_paddle.render(renderer)
         right_paddle.render(renderer)
-        test_text.render(renderer)
+        ball.render(renderer)
+
         SDL.renderPresent(renderer)
 
         SDL.delay(UInt(3))

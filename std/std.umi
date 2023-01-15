@@ -84,6 +84,11 @@ il class File "[mscorlib]System.IO.File" {
     ils static Array[String] readLines(String) "ReadAllLines"
 }
 
+il class Random "[mscorlib]System.Random" {
+    ils Random() ".ctor"
+    ils Double double() "NextDouble"
+}
+
 ils Void print(String) "[mscorlib]System.Console::WriteLine"
 ils Void print(Char) "[mscorlib]System.Console::WriteLine"
 ils Void print(Int) "[mscorlib]System.Console::WriteLine"
@@ -124,6 +129,11 @@ il Float -(Float, Float) "sub"
 il Float *(Float, Float) "mul"
 il Float /(Float, Float) "div"
 il Float %(Float, Float) "rem"
+il Double +(Double, Double) "add"
+il Double -(Double, Double) "sub"
+il Double *(Double, Double) "mul"
+il Double /(Double, Double) "div"
+il Double %(Double, Double) "rem"
 
 # Comparison Operators
 ils Bool ==(String, String) "string::op_Equality"

@@ -3,6 +3,7 @@ alias PI = 3.1415926535897931
 alias TAU = 6.2831853071795862
 
 ils Int clamp(Int, Int, Int) "[mscorlib]System.Math::Clamp"
+ils Float clamp(Float, Float, Float) "[mscorlib]System.Math::Clamp"
 ils Double clamp(Double, Double, Double) "[mscorlib]System.Math::Clamp"
 
 ils Double sqrt(Double) "[mscorlib]System.Math::Sqrt"
