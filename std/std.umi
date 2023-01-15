@@ -86,6 +86,9 @@ il class File "[mscorlib]System.IO.File" {
 
 il class Random "[mscorlib]System.Random" {
     ils Random() ".ctor"
+    ils Int int() "Next"
+    ils Int int(Int) "Next"
+    ils Int int(Int, Int) "Next"
     ils Double double() "NextDouble"
 }
 
@@ -124,21 +127,25 @@ il Long -(Long, Long) "sub"
 il Long *(Long, Long) "mul"
 il Long /(Long, Long) "div"
 il Long %(Long, Long) "rem"
+il Long -(Void, Long) "neg"
 il Float +(Float, Float) "add"
 il Float -(Float, Float) "sub"
 il Float *(Float, Float) "mul"
 il Float /(Float, Float) "div"
 il Float %(Float, Float) "rem"
+il Float -(Void, Float) "neg"
 il Double +(Double, Double) "add"
 il Double -(Double, Double) "sub"
 il Double *(Double, Double) "mul"
 il Double /(Double, Double) "div"
 il Double %(Double, Double) "rem"
+il Double -(Void, Double) "neg"
 
 # Comparison Operators
 ils Bool ==(String, String) "string::op_Equality"
 il Bool ==(Bool, Bool) "ceq"
 il Bool ==(Int, Int) "ceq"
+il Bool ==(Float, Float) "ceq"
 ils Bool !=(String, String) "string::op_Inequality"
 Bool !=(Bool a, Bool b) { (a == b) == false }
 Bool !=(Int a, Int b) { (a == b) == false }
@@ -149,6 +156,10 @@ Bool <=(Int a, Int b) { !(a > b) }
 il Bool ==(Long, Long) "ceq"
 Bool !=(Long a, Long b) { (a == b) == false }
 il Bool <(Long, Long) "clt"
+il Bool >(Float, Float) "cgt"
+il Bool <(Float, Float) "clt"
+Bool >=(Float a, Float b) { !(a < b) }
+Bool <=(Float a, Float b) { !(a > b) }
 
 # Logical Operators
 il Bool &&(Bool, Bool) "and"

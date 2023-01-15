@@ -915,7 +915,8 @@ abstract class AstNode {
 
             // If calling a method without `this`
             if (!IsMethodCall() && func_info is FuncInfo.Ord) {
-                if (func_info.parent_class != null && !func_info.is_constructor) {
+                var fi = (FuncInfo.Ord)func_info;
+                if (fi.parent_class != null && !fi.is_constructor && !fi.is_static) {
                     Output.WriteLine("ldarg 0");
                 }
             } else if (func_info is FuncInfo.Base) {
@@ -1868,7 +1869,7 @@ abstract class FuncInfo {
 
     // Ordinary function
     public class Ord : FuncInfo {
-        readonly bool is_static;
+        public readonly bool is_static;
         readonly string il_name;
         readonly Scope scope;
 
