@@ -1194,7 +1194,7 @@ abstract class AstNode {
 
         protected override void SetParent(AstNode parent) {
             base.SetParent(parent);
-            expression.SetParent(this);
+            expression?.SetParent(this);
         }
         
         public override void GenIl(Scope scope) {

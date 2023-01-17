@@ -27,7 +27,9 @@ class Paddle {
         left_bound <= point && point <= left_bound + width
     }
 
+    # TODO: fix
     Bool collidingWithBall(SDL_RectF ball_rect) {
+        if Ball.game_over { return false }
         within(ball_rect.x, rect.x, WIDTH) && within(ball_rect.y, rect.y, HEIGHT)
     }
 
@@ -46,8 +48,8 @@ class Paddle {
     }
 
     Void render(Pointer renderer) {
-        SDL.renderFillRectF(renderer, ref rect)
         score_text.render(renderer)
+        if !(Ball.game_over) { handleError(SDL.renderFillRectF(renderer, ref rect)) }
     }
 
     alias WIDTH = 20.0f
@@ -75,18 +77,27 @@ class Ball {
         rect = changeRectF(rect, velocity_x, velocity_y, SIZE, SIZE)
     }
 
+    Void verticalWallCollision(Paddle paddle, Pointer renderer) {
+        if game_over {
+            velocity_x = -velocity_x
+            return
+        }
+        resetPositionAndVelocity()
+        paddle.increaseScore(renderer)
+        score_sound.play()
+        if paddle.score == 11 { game_over = true }
+    }
+
     Void handleCollision(Paddle left_paddle, Paddle right_paddle, Pointer renderer) {
-        if rect.x == 0.0f {
-            resetPositionAndVelocity()
-            right_paddle.increaseScore(renderer)
-            score_sound.play()
-        } else if rect.x == WINDOW_WIDTH_F - SIZE {
-            resetPositionAndVelocity()
-            left_paddle.increaseScore(renderer)
-            score_sound.play()
-        } else if rect.y == 0.0f || rect.y == WINDOW_HEIGHT_F - SIZE {
+        if rect.y == 0.0f || rect.y == WINDOW_HEIGHT_F - SIZE {
             velocity_y = -velocity_y
         }
+
+        if rect.x == 0.0f {
+            verticalWallCollision(right_paddle, renderer)
+        } else if rect.x == WINDOW_WIDTH_F - SIZE {
+            verticalWallCollision(left_paddle, renderer)
+        } 
 
         if left_paddle.collidingWithBall(rect) || right_paddle.collidingWithBall(rect) {
             velocity_x = -velocity_x
@@ -105,6 +116,7 @@ class Ball {
     static SDL_RectF CENTRE
     static Sound hit_sound
     static Sound score_sound
+    static mut Bool game_over
 
     static Ball() {
         random = Random()
@@ -211,7 +223,6 @@ Void drawMiddleLine(Pointer renderer) {
 }
 
 Void main() {
-    
     if SDL.init(SDL.INIT_VIDEO | SDL.INIT_AUDIO) < 0 {
         print("Video initialisation failed")
         exit(1)

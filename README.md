@@ -8,9 +8,9 @@ Note that the .expected files are the expected output of the corresponding .umi 
 -   [x] [Turing Complete](https://github.com/kowasaur/umi/blob/main/examples/rule110.umi)
 -   [ ] Self-hosted
 -   [ ] Published on the AUR
--   [ ] Pong
+-   [x] Pong
 -   [ ] VSCode extension with auto-complete, etc
--   [ ] Interoperability with C#
+-   [x] Interoperability with C# (can use any C# file in Umi file but have to manually make bindings)
 
 ## Features
 
