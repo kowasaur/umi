@@ -1,7 +1,9 @@
 include "-unsafe SDL2.cs SDL2_ttf.cs"
 
-il class UInt : Int "unsigned int32" { il UInt(Int) "" }
 il class Byte : Int "unsigned int8" { il Byte(Int) "" }
+
+il class UInt "unsigned int32" { il UInt(Int) "" }
+il UInt |(UInt, UInt) "or"
 
 il class Pointer "native int" {
     # TODO: convert to il field
@@ -53,11 +55,14 @@ il class SDL_Color : Struct "SDL2.SDL/SDL_Color" {
     ils mut Byte a "a"
 }
 
+il class SDL_AudioSpec : Struct "SDL2.SDL/SDL_AudioSpec" {}
+
 il class SDL "SDL2.SDL" {
     ils static String getError() "SDL_GetError"
 
     # Init flags
-    alias INIT_VIDEO = UInt(0x20)
+    alias INIT_AUDIO = UInt(0x00000010)
+    alias INIT_VIDEO = UInt(0x00000020)
 
     # The UInt is the init flags
     # Returns 0 on success and negative on failure
@@ -98,6 +103,15 @@ il class SDL "SDL2.SDL" {
 
     # Wait the specified number of milliseconds
     ils static Void delay(UInt) "SDL_Delay"
+
+    ils static Pointer loadWAV(String, Ref[SDL_AudioSpec], Ref[Pointer], Ref[UInt]) "SDL_LoadWAV"
+    ils static Void freeWAV(Pointer) "SDL_FreeWAV"
+    
+    ils static UInt openAudioDevice(Pointer, Int, Ref[SDL_AudioSpec], Ref[SDL_AudioSpec], Int) "SDL_OpenAudioDevice"
+    ils static Void closeAudioDevice(UInt) "SDL_CloseAudioDevice"
+
+    ils static Int queueAudio(UInt, Pointer, UInt) "SDL_QueueAudio"
+    ils static Void pauseAudioDevice(UInt, Int) "SDL_PauseAudioDevice"
 }
 
 il class TTF "SDL2.SDL_ttf" {
