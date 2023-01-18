@@ -35,10 +35,8 @@ Note that the .expected files are the expected output of the corresponding .umi 
 
 ### Planned
 
--   Aliases within local scopes
 -   Macros or inline functions
 -   `for` `in` loop
 -   String interpolation
 -   Anonymous functions
 -   Switch cases
--   Namespaces

@@ -29,7 +29,6 @@ class Paddle {
 
     # TODO: fix
     Bool collidingWithBall(SDL_RectF ball_rect) {
-        if Ball.game_over { return false }
         within(ball_rect.x, rect.x, WIDTH) && within(ball_rect.y, rect.y, HEIGHT)
     }
 
@@ -49,7 +48,7 @@ class Paddle {
 
     Void render(Pointer renderer) {
         score_text.render(renderer)
-        if !(Ball.game_over) { handleError(SDL.renderFillRectF(renderer, ref rect)) }
+        handleError(SDL.renderFillRectF(renderer, ref rect))
     }
 
     alias WIDTH = 20.0f
@@ -77,33 +76,14 @@ class Ball {
         rect = changeRectF(rect, velocity_x, velocity_y, SIZE, SIZE)
     }
 
-    Void verticalWallCollision(Paddle paddle, Pointer renderer) {
-        if game_over {
-            velocity_x = -velocity_x
-            return
-        }
-        resetPositionAndVelocity()
-        paddle.increaseScore(renderer)
-        score_sound.play()
-        if paddle.score == 11 { game_over = true }
-    }
-
-    Void handleCollision(Paddle left_paddle, Paddle right_paddle, Pointer renderer) {
+    Void handleHorizontalWallCollision() {
         if rect.y == 0.0f || rect.y == WINDOW_HEIGHT_F - SIZE {
             velocity_y = -velocity_y
         }
-
-        if rect.x == 0.0f {
-            verticalWallCollision(right_paddle, renderer)
-        } else if rect.x == WINDOW_WIDTH_F - SIZE {
-            verticalWallCollision(left_paddle, renderer)
-        } 
-
-        if left_paddle.collidingWithBall(rect) || right_paddle.collidingWithBall(rect) {
-            velocity_x = -velocity_x
-            hit_sound.play()
-        }
     }
+
+    Bool collidingWithLeftWall() { rect.x == 0.0f }
+    Bool collidingWithRightWall() { rect.x == WINDOW_WIDTH_F - SIZE }
 
     Void render(Pointer renderer) {
         handleError(SDL.renderFillRectF(renderer, ref rect))
@@ -114,9 +94,6 @@ class Ball {
     
     static Random random
     static SDL_RectF CENTRE
-    static Sound hit_sound
-    static Sound score_sound
-    static mut Bool game_over
 
     static Ball() {
         random = Random()
@@ -124,8 +101,6 @@ class Ball {
         CENTRE.y = CENTRE.x
         CENTRE.w = SIZE
         CENTRE.h = SIZE
-        hit_sound = Sound("hit.wav")
-        score_sound = Sound("score.wav")
     }
 }
 
@@ -189,6 +164,104 @@ class Sound {
     }
 }
 
+# This is an abstract class
+class Scene {
+    # Update state and return either the same or a new Scene
+    Scene nextScene(Array[Byte] pressed_keys, Pointer renderer) { this }
+    # Only rendering should be done here
+    Void render(Pointer renderer) {}
+}
+
+class Court : Scene {
+    Paddle left_paddle
+    Paddle right_paddle
+    Ball ball
+
+    Court(Pointer renderer) {
+        left_paddle = Paddle(Paddle.PADDING, SDL.SCANCODE_W, SDL.SCANCODE_S, WINDOW_WIDTH / 4, renderer)
+        alias right_paddle_x = WINDOW_WIDTH_F - Paddle.PADDING - Paddle.WIDTH
+        right_paddle = Paddle(right_paddle_x, SDL.SCANCODE_UP, SDL.SCANCODE_DOWN, 3 * WINDOW_WIDTH / 4, renderer)
+        ball = Ball()
+    }
+
+    # Returns true if a player scored 11
+    Bool verticalWallCollision(Paddle paddle, Pointer renderer) {
+        ball.resetPositionAndVelocity()
+        paddle.increaseScore(renderer)
+        score_sound.play()
+        paddle.score == 11
+    }
+
+    # Returns whether to end the game
+    Bool handleCollision(Pointer renderer) {
+        ball.handleHorizontalWallCollision()
+
+        if ball.collidingWithLeftWall() {
+            if verticalWallCollision(right_paddle, renderer) { return true }
+        } else if ball.collidingWithRightWall() {
+            if verticalWallCollision(left_paddle, renderer) { return true }
+        }
+
+        if left_paddle.collidingWithBall(ball.rect) || right_paddle.collidingWithBall(ball.rect) {
+            ball.velocity_x = -(ball.velocity_x)
+            hit_sound.play()
+        }
+
+        false
+    }
+
+    Scene nextScene(Array[Byte] pressed_keys, Pointer renderer) {
+        left_paddle.handleKeys(pressed_keys)
+        right_paddle.handleKeys(pressed_keys)
+        ball.move()
+        if handleCollision(renderer) { return GameOver(this) }
+        this
+    }
+
+    Void render(Pointer renderer) {
+        drawMiddleLine(renderer)
+        left_paddle.render(renderer)
+        right_paddle.render(renderer)
+        ball.render(renderer)
+    }
+
+    static Sound hit_sound
+    static Sound score_sound
+
+    static Court() {
+        hit_sound = Sound("hit.wav")
+        score_sound = Sound("score.wav")
+    }
+}
+
+class GameOver : Scene {
+    Ball ball
+    Text left_paddle_text
+    Text right_paddle_text
+
+    GameOver(Court court) { 
+        ball = court.ball 
+        left_paddle_text = court.left_paddle.score_text
+        right_paddle_text = court.right_paddle.score_text
+    }
+
+    Scene nextScene(Array[Byte] pressed_keys, Pointer _) {
+        ball.move()  
+        ball.handleHorizontalWallCollision()
+        if ball.collidingWithLeftWall() || ball.collidingWithRightWall() {
+            ball.velocity_x = -(ball.velocity_x)
+        }
+        this
+    }
+
+    Void render(Pointer renderer) {
+        drawMiddleLine(renderer)
+        left_paddle_text.render(renderer)
+        right_paddle_text.render(renderer)
+        ball.render(renderer)
+    }
+}
+
 Void handleError(Int status) {
     if status < 0 {
         print(SDL.getError())
@@ -229,13 +302,8 @@ Void main() {
     }
 
     Pointer window = SDL.createWindow("Pong", SDL.WINDOWPOS_CENTERED, SDL.WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WindowFlags.SHOWN)
-
     Pointer renderer = SDL.createRenderer(window, -1, SDL_RendererFlags.ACCELERATED)
-
-    Paddle left_paddle = Paddle(Paddle.PADDING, SDL.SCANCODE_W, SDL.SCANCODE_S, WINDOW_WIDTH / 4, renderer)
-    Float right_paddle_x = WINDOW_WIDTH_F - Paddle.PADDING - Paddle.WIDTH
-    Paddle right_paddle = Paddle(right_paddle_x, SDL.SCANCODE_UP, SDL.SCANCODE_DOWN, 3 * WINDOW_WIDTH / 4, renderer)
-    Ball ball = Ball()
+    mut Scene scene = Court(renderer) 
 
     mut Bool quit = false
     while !quit {
@@ -244,22 +312,14 @@ Void main() {
             if e.type == SDL_EventType.QUIT { quit = true }
         }
 
-        Array[Byte] pressed_keys = getPressedKeys()
-        left_paddle.handleKeys(pressed_keys)
-        right_paddle.handleKeys(pressed_keys)
-        ball.move()
-        ball.handleCollision(left_paddle, right_paddle, renderer)
+        scene = scene.nextScene(getPressedKeys(), renderer)
 
         SDL.setRenderDrawColor(renderer, Byte(0), Byte(0), Byte(0), Byte(255))
         SDL.renderClear(renderer)
 
         # everything except background is white
         SDL.setRenderDrawColor(renderer, Byte(255), Byte(255), Byte(255), Byte(255))
-        drawMiddleLine(renderer)
-        left_paddle.render(renderer)
-        right_paddle.render(renderer)
-        ball.render(renderer)
-
+        scene.render(renderer)
         SDL.renderPresent(renderer)
 
         SDL.delay(UInt(1000 / 60))

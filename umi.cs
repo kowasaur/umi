@@ -592,8 +592,12 @@ abstract class Grammar {
         var BREAK = new Pattern("BREAK", new Grammar[] {new Tok(Token.Type.BREAK)}, (loc, _) => new AstNode.Break(loc));
         var CONTINUE = new Pattern("CONTINUE", new Grammar[] {new Tok(Token.Type.CONTINUE)}, (loc, _) => new AstNode.Continue(loc));
 
+        var ALIAS = new Pattern("ALIAS", new Grammar[] {new Tok(Token.Type.ALIAS), IDENTIFIER, EQUAL, EXPRESSION}, 
+            (loc, nodes) => new AstNode.Alias(loc, ValueText(nodes[1]), nodes[3])
+        );
+
         var LOCAL_STMTS = NewStatements("LOCAL", 
-            new Grammar[] {VAR_DEF, VAR_ASSIGN, EXPRESSION, IF_STMT, WHILE, RETURN, BREAK, CONTINUE}
+            new Grammar[] {VAR_DEF, VAR_ASSIGN, EXPRESSION, IF_STMT, WHILE, RETURN, BREAK, CONTINUE, ALIAS}
         );
         LOCAL_BLOCK.possible_patterns[0][1] = LOCAL_STMTS;
 
@@ -626,10 +630,6 @@ abstract class Grammar {
                 Type[] paras = Array.ConvertAll(MultiArray<AstNode.TypeNode>(nodes[3]), n => n.type);
                 return new AstNode.IlFunc(loc, (AstNode.FuncDefHead)nodes[1], il, paras, is_ils);
             }
-        );
-
-        var ALIAS = new Pattern("ALIAS", new Grammar[] {new Tok(Token.Type.ALIAS), IDENTIFIER, EQUAL, EXPRESSION}, 
-            (loc, nodes) => new AstNode.Alias(loc, ValueText(nodes[1]), nodes[3])
         );
 
         var FIELD = new Pattern("FIELD", new Grammar[] {STATIC, MUT, TYPE, IDENTIFIER}, 
@@ -1134,6 +1134,11 @@ abstract class AstNode {
             else_scope = SubScope(scope, local_var_types, else_statements.statements);
         }
 
+        protected override void SetParent(AstNode parent) {
+            base.SetParent(parent);
+            else_statements.SetParent(this);
+        }
+
         public override Type GetType(Scope _) {
             if (else_statements.GetType(else_scope) != statements.GetType(block_scope)) {
                 Umi.Crash("If and Else block must have the same return type", location);
@@ -1199,7 +1204,7 @@ abstract class AstNode {
         
         public override void GenIl(Scope scope) {
             if (expression != null) {
-                expression.ExpectType(GetAncestorOfType<AstNode.FuncDef>().GetType(scope), scope);
+                expression.ExpectType(GetAncestorOfType<AstNode.FuncDef>().return_type, scope);
                 expression.GenIl(scope);
             }
             Output.WriteLine("ret");
@@ -1258,7 +1263,7 @@ abstract class AstNode {
 
     public class FuncDef : Block {
         public readonly string name;
-        readonly Type return_type;
+        public readonly Type return_type;
         readonly Param[] parameters;
         readonly Name.Generic[] generics;
         bool is_static;
@@ -1366,7 +1371,9 @@ abstract class AstNode {
             this.value = value;
         }
 
+        // TODO: it might be better to make CreateNameInfo and DeclareVariables the same function
         public override void CreateNameInfo(Scope scope) => scope.Add(name, new Name.Alias(location, value));
+        protected override void DeclareVariables(Scope scope, List<string> _) => CreateNameInfo(scope);
         public override void GenIl(Scope _) {}
     }
 
@@ -2024,7 +2031,7 @@ class Scope {
         }
 
         if (!(parent is AstNode.Identifier)) Umi.Crash("Using struct fields can only be done on variables", parent.location);
-        
+
         var identifier = (AstNode.Identifier)parent;
         Name p = LookUp(identifier.content, identifier.location);
         if (!(p is Name.Varish)) return;
