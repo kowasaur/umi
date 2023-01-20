@@ -20,7 +20,7 @@ class Location {
     }
     
     public override string ToString() => $"{file_path}({line},{column})";
-    public string Label() => $"L{line}C{column}";
+    public string Label() => $"{new string(file_path.Where(Char.IsLetterOrDigit).ToArray())}L{line}C{column}";
 
     public static bool operator >(Location a, Location b) => a.index > b.index;
     public static bool operator <(Location a, Location b) => a.index < b.index;

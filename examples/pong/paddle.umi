@@ -12,7 +12,7 @@ class Paddle {
         rect.h = HEIGHT
         this.up_scancode = up_scancode
         this.down_scancode = down_scancode
-        score_text = Text(text_pos - 50, 20, "0", renderer)
+        score_text = Text(newRect(text_pos - 50, 20, 100, 100), "0", renderer)
     }
 
     static Bool within(Float point, Float left_bound, Float width) {

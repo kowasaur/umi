@@ -2,20 +2,23 @@ class Text {
     mut Pointer surface
     mut Pointer texture
     mut SDL_Rect rect
+    mut String text_str
 
-    Text(Int x, Int y, String inital_text, Pointer renderer) {
-        rect.x = x
-        rect.y = y
-        rect.w = 100
-        rect.h = 100
+    Text(SDL_Rect rect, String inital_text, Pointer renderer) {
+        this.rect = rect
         updateText(inital_text, renderer)
     }
 
-    Void updateText(String new_text, Pointer renderer) {
+    Void updateText(String new_text, SDL_Color color, Pointer renderer) {
         SDL.freeSurface(surface)
         SDL.destroyTexture(texture)
-        surface = TTF.renderTextSolid(FONT, new_text, WHITE)
+        surface = TTF.renderTextSolid(FONT, new_text, color)
         texture = SDL.createTextureFromSurface(renderer, surface)
+        text_str = new_text
+    }
+
+    Void updateText(String new_text, Pointer renderer) {
+        updateText(new_text, WHITE, renderer)
     }
 
     Void render(Pointer renderer) {
@@ -24,6 +27,7 @@ class Text {
 
     static Pointer FONT
     static SDL_Color WHITE
+    static SDL_Color BLACK
 
     static Text() {
         TTF.init()

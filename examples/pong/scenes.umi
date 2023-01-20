@@ -11,6 +11,81 @@ class Scene {
     Void render(Pointer renderer) {}
 }
 
+class MenuOption {
+    Text text
+    mut SDL_Rect border_rect
+    Scene scene
+
+    MenuOption(Int y, Int w, String text_str, Pointer renderer, Scene scene) {
+        this.scene = scene
+        alias HEIGHT = 100
+        alias BORDER_W = 300
+        alias BORDER_X = WINDOW_WIDTH / 2 - BORDER_W / 2
+        border_rect = newRect(BORDER_X, y, BORDER_W, HEIGHT)
+
+        alias text_x = WINDOW_WIDTH / 2 - w / 2
+        alias PAD = 15
+        text = Text(newRect(text_x, y + PAD, w, HEIGHT - PAD * 2), text_str, renderer)
+    }
+
+    Void changeTextColor(SDL_Color color, Pointer renderer) {
+        text.updateText(text.text_str, color, renderer)
+    }
+
+    Void render(Pointer renderer, Bool selected) {
+        if selected { SDL.renderFillRect(renderer, ref border_rect) } 
+        else { SDL.renderDrawRect(renderer, ref border_rect) }
+        text.render(renderer)
+    }
+}
+
+class Menu : Scene {
+    Text title
+    Array[MenuOption] options
+    mut Int selected # index in options
+
+    Menu(Pointer renderer) {
+        alias TITLE_W = 450
+        alias TITLE_X = WINDOW_WIDTH / 2 - TITLE_W / 2
+        title = Text(newRect(TITLE_X, 150, TITLE_W, 180), "Pong", renderer)
+
+        options = Array[MenuOption](2)
+        options.set(0, MenuOption(500, 250, "2 Players", renderer, Court2Players(renderer)))
+        options.set(1, MenuOption(650, 120, "Quit", renderer, this))
+
+        changeSelected(0, renderer)
+    }
+
+    Void changeSelected(Int change, Pointer renderer) {
+        options.get(selected).changeTextColor(Text.WHITE, renderer)
+        selected = clamp(selected + change, 0, options.size() - 1)
+        options.get(selected).changeTextColor(Text.BLACK, renderer)
+    }
+
+    # TODO: it moves too fast so 3 options won't work
+    Scene nextScene(Array[Byte] pressed_keys, Pointer renderer) {
+        if pressed_keys.get(SDL.SCANCODE_RETURN) == 1 {
+            if selected == options.size() - 1 { quit = true }
+            return options.get(selected).scene
+        }
+
+        if pressed_keys.get(SDL.SCANCODE_UP) == 1 { changeSelected(-1, renderer) }
+        if pressed_keys.get(SDL.SCANCODE_DOWN) == 1 { changeSelected(1, renderer) }
+        this
+    }
+
+    Void render(Pointer renderer) {
+        title.render(renderer)
+        mut Int i = 0
+        while i < options.size() {
+            options.get(i).render(renderer, i == selected)
+            i = i + 1
+        }
+    }
+
+    static mut Bool quit
+}
+
 class Court2Players : Scene {
     Paddle left_paddle
     Paddle right_paddle
@@ -50,6 +125,7 @@ class Court2Players : Scene {
     }
 
     Scene nextScene(Array[Byte] pressed_keys, Pointer renderer) {
+        if pressed_keys.get(SDL.SCANCODE_ESCAPE) == 1 { return Menu(renderer) }
         left_paddle.handleKeys(pressed_keys)
         right_paddle.handleKeys(pressed_keys)
         ball.move()
@@ -84,7 +160,8 @@ class GameOver : Scene {
         right_paddle_text = court.right_paddle.score_text
     }
 
-    Scene nextScene(Array[Byte] pressed_keys, Pointer _) {
+    Scene nextScene(Array[Byte] pressed_keys, Pointer renderer) {
+        if pressed_keys.get(SDL.SCANCODE_ESCAPE) == 1 { return Menu(renderer) }
         ball.move()  
         ball.handleHorizontalWallCollision()
         if ball.collidingWithLeftWall() || ball.collidingWithRightWall() {

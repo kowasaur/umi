@@ -82,6 +82,7 @@ il class SDL "SDL2.SDL" {
     ils static Int setRenderDrawColor(Pointer, Byte, Byte, Byte, Byte) "SDL_SetRenderDrawColor"
     ils static Int renderFillRect(Pointer, Ref[SDL_Rect]) "SDL_RenderFillRect"
     ils static Int renderFillRectF(Pointer, Ref[SDL_RectF]) "SDL_RenderFillRectF"
+    ils static Int renderDrawRect(Pointer, Ref[SDL_Rect]) "SDL_RenderDrawRect"
     ils static Int renderClear(Pointer) "SDL_RenderClear"
     ils static Int renderCopy(Pointer, Pointer, Pointer, Ref[SDL_Rect]) "SDL_RenderCopy"
     ils static Void renderPresent(Pointer) "SDL_RenderPresent"
@@ -93,6 +94,8 @@ il class SDL "SDL2.SDL" {
 
     alias SCANCODE_S = 22
     alias SCANCODE_W = 26
+    alias SCANCODE_RETURN = 40
+    alias SCANCODE_ESCAPE = 41
     alias SCANCODE_DOWN = 81
     alias SCANCODE_UP = 82
 

@@ -14,6 +14,15 @@ Void handleError(Int status) {
     }
 }
 
+SDL_Rect newRect(Int x, Int y, Int w, Int h) {
+    SDL_Rect rect = rect
+    rect.x = x
+    rect.y = y
+    rect.w = w
+    rect.h = h
+    rect
+}
+
 SDL_RectF changeRectF(SDL_RectF rect, Float change_x, Float change_y, Float obj_width, Float obj_height) {
     rect.x = clamp(rect.x + change_x, 0.0f, WINDOW_WIDTH_F - obj_width)
     rect.y = clamp(rect.y + change_y, 0.0f, WINDOW_HEIGHT_F - obj_height)
@@ -48,13 +57,12 @@ Void main() {
 
     Pointer window = SDL.createWindow("Pong", SDL.WINDOWPOS_CENTERED, SDL.WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WindowFlags.SHOWN)
     Pointer renderer = SDL.createRenderer(window, -1, SDL_RendererFlags.ACCELERATED)
-    mut Scene scene = Court2Players(renderer) 
+    mut Scene scene = Menu(renderer)
 
-    mut Bool quit = false
-    while !quit {
+    while !(Menu.quit) {
         mut SDL_Event e = e
         while SDL.pollEvent(ref e) > 0 {
-            if e.type == SDL_EventType.QUIT { quit = true }
+            if e.type == SDL_EventType.QUIT { Menu.quit = true }
         }
 
         scene = scene.nextScene(getPressedKeys(), renderer)
