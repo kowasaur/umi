@@ -1,0 +1,50 @@
+class Paddle {
+    mut SDL_RectF rect
+    Int up_scancode
+    Int down_scancode
+    mut Int score
+    Text score_text
+
+    Paddle(Float x, Int up_scancode, Int down_scancode, Int text_pos, Pointer renderer) {
+        rect.x = x
+        rect.y = WINDOW_HEIGHT_F / 2.0f - HEIGHT / 2.0f
+        rect.w = WIDTH
+        rect.h = HEIGHT
+        this.up_scancode = up_scancode
+        this.down_scancode = down_scancode
+        score_text = Text(text_pos - 50, 20, "0", renderer)
+    }
+
+    static Bool within(Float point, Float left_bound, Float width) {
+        left_bound <= point && point <= left_bound + width
+    }
+
+    # TODO: fix
+    Bool collidingWithBall(SDL_RectF ball_rect) {
+        within(ball_rect.x, rect.x, WIDTH) && within(ball_rect.y, rect.y, HEIGHT)
+    }
+
+    Void handleKeys(Array[Byte] pressed_keys) {
+        mut Float change = 0.0f
+
+        if pressed_keys.get(up_scancode) == 1 { change = change - SPEED }
+        if pressed_keys.get(down_scancode) == 1 { change = change + SPEED }
+
+        rect = changeRectF(rect, 0.0f, change, WIDTH, HEIGHT)
+    }
+
+    Void increaseScore(Pointer renderer) {
+        score = score + 1
+        score_text.updateText(score.toString(), renderer)
+    }
+
+    Void render(Pointer renderer) {
+        score_text.render(renderer)
+        handleError(SDL.renderFillRectF(renderer, ref rect))
+    }
+
+    alias WIDTH = 16.0f
+    alias HEIGHT = 120.0f
+    alias PADDING = 30.0f
+    alias SPEED = 12.0f
+}

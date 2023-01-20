@@ -1,0 +1,35 @@
+class Text {
+    mut Pointer surface
+    mut Pointer texture
+    mut SDL_Rect rect
+
+    Text(Int x, Int y, String inital_text, Pointer renderer) {
+        rect.x = x
+        rect.y = y
+        rect.w = 100
+        rect.h = 100
+        updateText(inital_text, renderer)
+    }
+
+    Void updateText(String new_text, Pointer renderer) {
+        SDL.freeSurface(surface)
+        SDL.destroyTexture(texture)
+        surface = TTF.renderTextSolid(FONT, new_text, WHITE)
+        texture = SDL.createTextureFromSurface(renderer, surface)
+    }
+
+    Void render(Pointer renderer) {
+        handleError(SDL.renderCopy(renderer, texture, Pointer.null(), ref rect))
+    }
+
+    static Pointer FONT
+    static SDL_Color WHITE
+
+    static Text() {
+        TTF.init()
+        FONT = TTF.openFont("assets/FFF_Forward.ttf", 24)
+        WHITE.r = Byte(255)
+        WHITE.g = Byte(255)
+        WHITE.b = Byte(255)
+    }
+}

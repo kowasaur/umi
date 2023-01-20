@@ -1,0 +1,23 @@
+class Sound {
+    mut Pointer wav_buffer
+    mut UInt wav_length
+    mut UInt device_id
+
+    Sound(String file_path) {
+        mut SDL_AudioSpec wav_spec = wav_spec
+        SDL.loadWAV(file_path, ref wav_spec, ref wav_buffer, ref wav_length)
+
+        mut SDL_AudioSpec _ = _ # want to pass null but can't
+        device_id = SDL.openAudioDevice(Pointer.null(), 0, ref wav_spec, ref _, 0)
+        SDL.pauseAudioDevice(device_id, 0) # actually unpause it
+    }
+
+    Void play() {
+        handleError(SDL.queueAudio(device_id, wav_buffer, wav_length))
+    }
+
+    Void destroy() {
+        SDL.closeAudioDevice(device_id)
+        SDL.freeWAV(wav_buffer)
+    }
+}

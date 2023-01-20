@@ -1,0 +1,102 @@
+include "text.umi"
+include "sound.umi"
+include "paddle.umi"
+include "ball.umi"
+
+# This is an abstract class
+class Scene {
+    # Update state and return either the same or a new Scene
+    Scene nextScene(Array[Byte] pressed_keys, Pointer renderer) { this }
+    # Only rendering should be done here
+    Void render(Pointer renderer) {}
+}
+
+class Court2Players : Scene {
+    Paddle left_paddle
+    Paddle right_paddle
+    Ball ball
+
+    Court2Players(Pointer renderer) {
+        left_paddle = Paddle(Paddle.PADDING, SDL.SCANCODE_W, SDL.SCANCODE_S, WINDOW_WIDTH / 4, renderer)
+        alias right_paddle_x = WINDOW_WIDTH_F - Paddle.PADDING - Paddle.WIDTH
+        right_paddle = Paddle(right_paddle_x, SDL.SCANCODE_UP, SDL.SCANCODE_DOWN, 3 * WINDOW_WIDTH / 4, renderer)
+        ball = Ball()
+    }
+
+    # Returns true if a player scored 11
+    Bool verticalWallCollision(Paddle paddle, Pointer renderer) {
+        ball.resetPositionAndVelocity()
+        paddle.increaseScore(renderer)
+        score_sound.play()
+        paddle.score == 11
+    }
+
+    # Returns whether to end the game
+    Bool handleCollision(Pointer renderer) {
+        ball.handleHorizontalWallCollision()
+
+        if ball.collidingWithLeftWall() {
+            if verticalWallCollision(right_paddle, renderer) { return true }
+        } else if ball.collidingWithRightWall() {
+            if verticalWallCollision(left_paddle, renderer) { return true }
+        }
+
+        if left_paddle.collidingWithBall(ball.rect) || right_paddle.collidingWithBall(ball.rect) {
+            ball.velocity_x = -(ball.velocity_x)
+            hit_sound.play()
+        }
+
+        false
+    }
+
+    Scene nextScene(Array[Byte] pressed_keys, Pointer renderer) {
+        left_paddle.handleKeys(pressed_keys)
+        right_paddle.handleKeys(pressed_keys)
+        ball.move()
+        if handleCollision(renderer) { return GameOver(this) }
+        this
+    }
+
+    Void render(Pointer renderer) {
+        drawMiddleLine(renderer)
+        left_paddle.render(renderer)
+        right_paddle.render(renderer)
+        ball.render(renderer)
+    }
+
+    static Sound hit_sound
+    static Sound score_sound
+
+    static Court2Players() {
+        hit_sound = Sound("assets/hit.wav")
+        score_sound = Sound("assets/score.wav")
+    }
+}
+
+class GameOver : Scene {
+    Ball ball
+    Text left_paddle_text
+    Text right_paddle_text
+
+    GameOver(Court2Players court) { 
+        ball = court.ball 
+        left_paddle_text = court.left_paddle.score_text
+        right_paddle_text = court.right_paddle.score_text
+    }
+
+    Scene nextScene(Array[Byte] pressed_keys, Pointer _) {
+        ball.move()  
+        ball.handleHorizontalWallCollision()
+        if ball.collidingWithLeftWall() || ball.collidingWithRightWall() {
+            ball.velocity_x = -(ball.velocity_x)
+        }
+        this
+    }
+
+    Void render(Pointer renderer) {
+        drawMiddleLine(renderer)
+        left_paddle_text.render(renderer)
+        right_paddle_text.render(renderer)
+        ball.render(renderer)
+    }
+}

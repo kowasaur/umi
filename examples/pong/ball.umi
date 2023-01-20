@@ -1,0 +1,46 @@
+class Ball {
+    mut SDL_RectF rect
+    mut Float velocity_x
+    mut Float velocity_y
+
+    Ball() { resetPositionAndVelocity() }
+
+    Void resetPositionAndVelocity() {
+        rect = CENTRE
+        mut Double angle = random.double() * 2. * PI / 3. - PI / 3.
+        if random.int(2) == 1 { angle = angle + PI }
+        velocity_x = SPEED * Float(cos(angle))
+        velocity_y = SPEED * Float(sin(angle))
+    }
+
+    Void move() {
+        rect = changeRectF(rect, velocity_x, velocity_y, SIZE, SIZE)
+    }
+
+    Void handleHorizontalWallCollision() {
+        if rect.y == 0.0f || rect.y == WINDOW_HEIGHT_F - SIZE {
+            velocity_y = -velocity_y
+        }
+    }
+
+    Bool collidingWithLeftWall() { rect.x == 0.0f }
+    Bool collidingWithRightWall() { rect.x == WINDOW_WIDTH_F - SIZE }
+
+    Void render(Pointer renderer) {
+        handleError(SDL.renderFillRectF(renderer, ref rect))
+    }
+
+    alias SIZE = 20.0f
+    alias SPEED = 10.0f
+    
+    static Random random
+    static SDL_RectF CENTRE
+
+    static Ball() {
+        random = Random()
+        CENTRE.x = WINDOW_WIDTH_F / 2.0f - SIZE / 2.0f
+        CENTRE.y = CENTRE.x
+        CENTRE.w = SIZE
+        CENTRE.h = SIZE
+    }
+}
