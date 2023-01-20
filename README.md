@@ -2,13 +2,30 @@
 
 Note that the .expected files are the expected output of the corresponding .umi files.
 
+## Example
+
+```rb
+Int !(Int n, Void _) {
+    if n == 0 { 1 }
+    else { n * (n - 1)! }
+}
+
+Void main() {
+    print(0!)  #         1
+    print(1!)  #         1
+    print(5!)  #       120
+    print(10!) #   3628800
+    print(12!) # 479001600
+}
+```
+
 ## Goals
 
 -   [x] Compiles to [CIL](https://en.wikipedia.org/wiki/Common_Intermediate_Language)
 -   [x] [Turing Complete](https://github.com/kowasaur/umi/blob/main/examples/rule110.umi)
 -   [ ] Self-hosted
 -   [ ] Published on the AUR
--   [x] Pong
+-   [x] [Pong](https://github.com/kowasaur/umi/tree/main/examples/pong)
 -   [ ] VSCode extension with auto-complete, etc
 -   [x] Interoperability with C# (can use any C# file in Umi file but have to manually make bindings)
 
