@@ -13,6 +13,7 @@ class Sound {
     }
 
     Void play() {
+        SDL.clearQueuedAudio(device_id) # TODO: remove when collision is fixed
         handleError(SDL.queueAudio(device_id, wav_buffer, wav_length))
     }
 

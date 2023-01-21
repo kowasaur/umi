@@ -15,13 +15,14 @@ class Paddle {
         score_text = Text(newRect(text_pos - 50, 20, 100, 100), "0", renderer)
     }
 
-    static Bool within(Float point, Float left_bound, Float width) {
-        left_bound <= point && point <= left_bound + width
+    static Bool within(Float point_left, Float point_right, Float left_bound, Float width) {
+        left_bound <= point_right && point_left <= left_bound + width
     }
 
     # TODO: fix
     Bool collidingWithBall(SDL_RectF ball_rect) {
-        within(ball_rect.x, rect.x, WIDTH) && within(ball_rect.y, rect.y, HEIGHT)
+        alias x = within(ball_rect.x, ball_rect.x + Ball.SIZE, rect.x, WIDTH)
+        x && within(ball_rect.y, ball_rect.y + Ball.SIZE, rect.y, HEIGHT)
     }
 
     Void handleKeys(Array[Byte] pressed_keys) {

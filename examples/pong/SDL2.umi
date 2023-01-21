@@ -114,6 +114,7 @@ il class SDL "SDL2.SDL" {
     ils static Void closeAudioDevice(UInt) "SDL_CloseAudioDevice"
 
     ils static Int queueAudio(UInt, Pointer, UInt) "SDL_QueueAudio"
+    ils static Void clearQueuedAudio(UInt) "SDL_ClearQueuedAudio"
     ils static Void pauseAudioDevice(UInt, Int) "SDL_PauseAudioDevice"
 }
 
