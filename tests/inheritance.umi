@@ -14,6 +14,8 @@ class Cat : Animal {
     Void speak() { meow() }
 
     Void meow() { print("Meow") }
+
+    String toString() { "majestic " + base.toString() + "Mittens" }
 }
 
 class Dog : Animal {
@@ -44,6 +46,7 @@ Void main() {
     Animal cat = Cat()
     cat.speak()
     (cat as Cat).meow()
+    print(cat.toString())
 
     Dog dog = Dog("spot", 5)
     print(dog.toString())

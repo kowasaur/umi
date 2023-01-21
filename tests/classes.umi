@@ -19,6 +19,8 @@ class Person {
         print("Making " + name + " caused a side effect")
     }
 
+    Person(String name) { this(name, 0) } # default age
+
     Void introduce() {
         Console.write(GREETING + name + ", ")
         print(this.age)
@@ -58,6 +60,7 @@ Void main() {
     p.name = "Barry"
     p.introduce()
     print(p.ageAfterYears(15))
+    print(Person("Zack").age)
 
     mut IntList list = IntList()
     list = add10(list)

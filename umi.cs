@@ -834,11 +834,13 @@ abstract class AstNode {
         readonly AstNode[] arguments;
         AstNode method_caller; // left of dot of method calls
         readonly Type[] generics;
+        readonly bool this_or_base;
 
         public FuncCall(Location loc, string name, AstNode[] args, Type[] gens = null) : base(loc) {
             this.name = name;
             arguments = args;
             generics = gens ?? new Type[0];
+            this_or_base = name == "this" || name == "base";
         }
 
         bool IsMethodCall() => method_caller != null;
@@ -866,14 +868,7 @@ abstract class AstNode {
                 maybe_func = scope.LookUp(name, location);
             }
             
-            Name.Func func;
-            if (maybe_func is Name.Func) func = (Name.Func)maybe_func;
-            else if (maybe_func is Name.Class) func = ((Name.Class)maybe_func).constructor; 
-            else {
-                Umi.Crash("Tried to call something that is not a function", location);
-                return null;
-            }
-
+            Name.Func func = maybe_func.AsFunc(scope, location);
             Type parent_instance = IsMethodCall() ? getParentInstance(og_scope) : null;
             Type[] arg_types = Array.ConvertAll(arguments, arg => arg.GetType(og_scope));
             FuncInfo func_info = func.BestFit(arg_types, generics, scope, location, parent_instance);
@@ -894,6 +889,8 @@ abstract class AstNode {
         Type getParentInstance(Scope scope) => method_caller.GetType(scope);
 
         public override Type GetType(Scope scope) {
+            if (this_or_base) return Type.VOID;
+
             FuncInfo func_info = GetFuncInfo(scope);
             Type real_type = func_info.return_type.RealType(func_info.generics, generics);
             if (!IsMethodCall()) return real_type;
@@ -916,24 +913,25 @@ abstract class AstNode {
             // If calling a method without `this`
             if (!IsMethodCall() && func_info is FuncInfo.Ord) {
                 var fi = (FuncInfo.Ord)func_info;
-                if (fi.parent_class != null && !fi.is_constructor && !fi.is_static) {
+                bool not_constructor = !fi.is_constructor || this_or_base;
+                if (fi.parent_class != null && not_constructor && !fi.is_static) {
                     Output.WriteLine("ldarg 0");
                 }
-            } else if (func_info is FuncInfo.Base) {
-                Output.WriteLine("ldarg 0");
             }
 
             Type parent_instance = new Type(func_info.parent_class);
+            bool call_instance = this_or_base;
 
             if (func_info.is_constructor) {
                 parent_instance = new Type(func_info.parent_class, Array.ConvertAll(generics, g => g.name));
             } else if (IsMethodCall()) {
                 parent_instance = getParentInstance(scope);
+                if ((method_caller as AstNode.Identifier)?.content == "base") call_instance = true;
             }
 
             scope.GenLoadIl(method_caller, parent_instance, IsMethodCall());
             foreach (var arg in arguments) arg.GenIl(scope);
-            func_info.GenIl(scope, generics, parent_instance);
+            func_info.GenIl(scope, generics, parent_instance, call_instance);
         }
     }
     
@@ -1291,18 +1289,19 @@ abstract class AstNode {
             AddToScope(scope, parent_class, func_info, name, return_type, is_static);
             DeclareVariables(generics_scope, local_var_types);
             
-            List<Param> paras = parameters.ToList();
             if (!is_static) {
-                paras.Insert(0, new Param(location, new Type(parent_class, ((IlClass)node_parent).generics), "this"));
+                var cls = (IlClass)node_parent;
+                block_scope.Add("this", new Name.This(new Type(parent_class, cls.generics), location));
+                block_scope.Add("base", new Name.This(new Type(cls.base_class), location));
             }
 
             // Handle prefix operator functions
-            if (paras.Count == 2 && paras[0].type == Type.VOID) {
-                Param p = paras[1];
+            if (parameters.Length == 2 && parameters[0].type == Type.VOID) {
+                Param p = parameters[1];
                 block_scope.Add(p.name, new Name.Var(p.type, true, 0, p.location));
-            } else for (int i = 0; i < paras.Count; i++) {
-                Param p = paras[i];
-                var par = new Name.Var(p.type, true, i, p.location);
+            } else for (int i = 0; i < parameters.Length; i++) {
+                Param p = parameters[i];
+                var par = new Name.Var(p.type, true, is_static ? i : i + 1, p.location);
                 block_scope.Add(p.name, par);
             }
         }
@@ -1448,7 +1447,7 @@ abstract class AstNode {
         public readonly string name;
         public readonly Name.Generic[] generics;
         readonly string il_name;
-        protected string base_class;
+        public string base_class;
         protected readonly Statements statements;
         protected Scope class_scope;
 
@@ -1467,25 +1466,18 @@ abstract class AstNode {
 
         public override void CreateNameInfo(Scope scope) {
             class_scope = new Scope(scope);
-            scope.Add(name, new Name.Class(location, name, class_scope, il_name, base_class, generics));
 
-            foreach (var gen in generics) class_scope.Add(gen.name, gen);
-            foreach (AstNode stmt in statements.statements) stmt.CreateNameInfo(class_scope);
-
-            // Copy the scope of the base class into this class
             // * Note that this means the base class must come before this class
             if (base_class != null) {
                 Name base_name = scope.LookUp(base_class, location);
                 if (!(base_name is Name.Class)) Umi.Crash("Can only inherit from classes", location);
                 var base_class_name = (Name.Class)base_name;
-
-                // `base`
-                foreach (var func_info in base_class_name.constructor.functions) {
-                    class_scope.AddFunction(location, "base", new FuncInfo.Base(func_info.param_types, base_class, location));
-                }
-
-                foreach (var entry in base_class_name.members.names) class_scope.names.TryAdd(entry.Key, entry.Value);
+                class_scope = new Scope(base_class_name.members);
             }
+
+            scope.Add(name, new Name.Class(location, name, class_scope, il_name, base_class, generics));
+            foreach (var gen in generics) class_scope.Add(gen.name, gen);
+            foreach (AstNode stmt in statements.statements) stmt.CreateNameInfo(class_scope);
         }
 
         public override void GenIl(Scope _) {}
@@ -1648,6 +1640,11 @@ abstract class Name {
 
     Name(Location defined_at) => this.defined_at = defined_at;
 
+    public virtual Func AsFunc(Scope scope, Location loc) {
+        Umi.Crash("Tried to call something that is not a function", loc);
+        return null;
+    }
+
     public class Generic : Name {
         public readonly string name;
         public readonly string il_name;
@@ -1689,19 +1686,16 @@ abstract class Name {
             this.generics = generics;
         }
 
-        public override Name GetMember(string child, Location location, Scope _) {
-            Name member;
-            if (!members.names.TryGetValue(child, out member)) {
-                Umi.Crash($"`{child}` does not exist in the `{name}` class", location);
-            }
-            return member;
-        }
+        public override Func AsFunc(Scope _, Location __) => constructor;
+        public override Name GetMember(string child, Location location, Scope _) => members.LookUp(child, location);
     }
 
     public class Func : Name {
         // The various definitions for the different overloads
         public readonly List<FuncInfo> functions = new List<FuncInfo>();
         public Func(Location defined_at) : base(defined_at) {}
+
+        public override Func AsFunc(Scope _, Location __) => this;
 
         // This function is currently a misnomer
         // It returns the *first* FuncInfo that matches
@@ -1792,6 +1786,12 @@ abstract class Name {
         }
     }
 
+    // `this` or `base`
+    public class This : Var {
+        public This(Type type, Location loc) : base(type, true, 0, loc) {}
+        public override Func AsFunc(Scope scope, Location loc) => ((Name.Class)scope.LookUpType(type.name, loc)).constructor;
+    }
+
     public class Alias : Varish {
         public AstNode node;
         public Alias(Location defined_at, AstNode node) : base(defined_at, false) => this.node = node;
@@ -1820,7 +1820,7 @@ abstract class Name {
         public override void CheckCanAssign(AstNode assignment) {
             if (is_mutable) return;
             FuncInfo.Ord func_info = assignment.GetAncestorOfType<AstNode.FuncDef>().func_info;
-            if (func_info.is_constructor && func_info.parent_class == parent_class.name) return;
+            if (func_info.is_constructor) return;
             Umi.Crash($"Cannot reassign immutable member `{parent_class}.{name}` outside of constructor", assignment.location);
         }
 
@@ -1872,7 +1872,7 @@ abstract class FuncInfo {
         this.is_constructor = constructor;
     }
 
-    public abstract void GenIl(Scope scope, Type[] gens, Type parent_instance);
+    public abstract void GenIl(Scope scope, Type[] gens, Type parent_instance, bool call_instance);
 
     // Ordinary function
     public class Ord : FuncInfo {
@@ -1917,24 +1917,13 @@ abstract class FuncInfo {
             return $"{rt} {prefix}{il_name}{generic}({para_types})";
         }
 
-        public override void GenIl(Scope called_scope, Type[] gens, Type parent_instance) {
+        public override void GenIl(Scope called_scope, Type[] gens, Type parent_instance, bool call_instance) {
             string call_word = is_static ? "call" : "callvirt";
             if (is_constructor) call_word = "newobj";
+            if (call_instance) call_word = "call instance";
             
             string prefix = parent_class == null ? "" : called_scope.GetIlType(parent_instance, defined_at) + "::";
             Output.WriteLine($"{call_word} {IlSignature(gens, prefix)}");
-        }
-    }
-
-    // TODO: static constructors' base
-    // Calling the base constructor within a constructor
-    public class Base : FuncInfo {
-        public Base(Type[] ptypes, string parent_class, Location loc)
-        : base(ptypes, Type.VOID, new Name.Generic[0], parent_class, loc, false) {}
-
-        public override void GenIl(Scope scope, Type[] _, Type __) {
-            string paras = scope.ParameterTypesString(param_types, defined_at);
-            Output.WriteLine($"call instance void {parent_class}::.ctor({paras})");
         }
     }
 
@@ -1944,7 +1933,7 @@ abstract class FuncInfo {
         public Il(Type[] ptypes, Type rtype, string il, Name.Generic[] gens, string parent_class, Location loc, bool is_constructor)
         : base(ptypes, rtype, gens, parent_class, loc, is_constructor) => this.il = il;
         
-        public override void GenIl(Scope scope, Type[] __, Type parent_instance) {
+        public override void GenIl(Scope scope, Type[] _, Type parent_instance, bool __) {
             Output.WriteLine(scope.InsertGenerics(il, parent_instance.generics, defined_at));
         }
     }
